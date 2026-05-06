@@ -12,6 +12,7 @@
       "supportsTablet": true
     },
     "android": {
+      "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -20,7 +21,10 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
+<<<<<<< HEAD
       "useNextNotificationsApi": true,
+=======
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
       "package": "com.tsuyo7.energyapp"
     },
     "web": {

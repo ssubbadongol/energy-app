@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import {
   Calendar, ChevronLeft, ChevronRight, Clock, Coffee,
   Edit2, Moon, Plus, X, Zap,
@@ -14,10 +15,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TaskForm, TaskFormValues } from './TaskForm';
 import { addTask, getSharedTasks, Task, updateTask } from './taskStorage';
+=======
+import { Calendar, Clock, Coffee, Edit2, Moon, Zap } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { getSharedTasks, initializeTasks, Task } from '../taskStorage';
+import TaskEditModal from './TaskEditModal';
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 type EnergyLevel = 'high' | 'medium' | 'low';
 type SortBy = 'date' | 'priority';
 
+<<<<<<< HEAD
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -358,6 +368,8 @@ function FullCalendarModal({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
+=======
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 export default function AllTasksScreen() {
   const today = useMemo(() => {
     const d = new Date();
@@ -367,6 +379,7 @@ export default function AllTasksScreen() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sortBy, setSortBy] = useState<SortBy>('date');
+<<<<<<< HEAD
   const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -391,6 +404,22 @@ export default function AllTasksScreen() {
   useEffect(() => {
     const interval = setInterval(() => {
       setTasks(getSharedTasks());
+=======
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+
+  useEffect(() => {
+    // Initialize tasks on first load
+    initializeTasks().then(() => {
+      setTasks(getSharedTasks());
+    });
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const latestTasks = getSharedTasks();
+      setTasks(latestTasks);
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     }, 500);
     return () => clearInterval(interval);
   }, []);
@@ -492,6 +521,7 @@ export default function AllTasksScreen() {
   const activeTasks = sortTasks(dayTasks.filter(t => !t.completed));
   const completedTasks = dayTasks.filter(t => t.completed);
 
+<<<<<<< HEAD
   // Week range label
   const weekStart = weekDays[0];
   const weekEnd = weekDays[6];
@@ -510,6 +540,44 @@ export default function AllTasksScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* ── Header ── */}
+=======
+  const getEnergyColor = (level: EnergyLevel) => {
+    switch(level) {
+      case 'high': return '#F59E0B';
+      case 'medium': return '#8b5cf6';
+      case 'low': return '#38BDF8';
+    }
+  };
+
+  const getEnergyCardColor = (level: EnergyLevel) => {
+    switch(level) {
+      case 'high': return { border: '#F59E0B', bg: '#FEF3C7' };
+      case 'medium': return { border: '#8b5cf6', bg: '#F3E8FF' };
+      case 'low': return { border: '#38BDF8', bg: '#E0F2FE' };
+    }
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setShowEditModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowEditModal(false);
+    setEditingTask(null);
+  };
+
+  const handleSaveTask = () => {
+    setTasks(getSharedTasks());
+  };
+
+  const sortedTasks = sortTasks(tasks.filter(t => !t.completed));
+  const completedTasks = tasks.filter(t => t.completed);
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <View>
@@ -641,10 +709,59 @@ export default function AllTasksScreen() {
           </TouchableOpacity>
         </View>
 
+<<<<<<< HEAD
         {/* ── Active Tasks ── */}
         {activeTasks.map(task => (
           <TaskCard key={task.id} task={task} today={today} onEdit={openEditModal} />
         ))}
+=======
+        {sortedTasks.map(task => {
+          const colors = getEnergyCardColor(task.energy);
+          const EnergyIcon = getEnergyIcon(task.energy);
+          
+          return (
+            <TouchableOpacity
+              key={task.id}
+              onPress={() => handleEditTask(task)}
+              style={[styles.taskCard, { borderLeftColor: colors.border, backgroundColor: colors.bg }]}
+            >
+              <View style={styles.taskCardContent}>
+                <View style={styles.taskInfo}>
+                  <Text style={styles.taskName}>{task.name}</Text>
+                  <View style={styles.taskMeta}>
+                    <View style={styles.metaItem}>
+                      <Calendar size={16} color="#666" />
+                      <Text style={styles.metaText}>{formatDate(task.dueDate)}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Clock size={16} color="#666" />
+                      <Text style={styles.metaText}>{task.time}m</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <EnergyIcon size={16} color={getEnergyColor(task.energy)} />
+                      <Text style={styles.metaText}>{task.energy}</Text>
+                    </View>
+                    <View style={styles.priorityBadge}>
+                      <Text style={[styles.priorityText, { color: colors.border }]}>{task.priority} priority</Text>
+                    </View>
+                  </View>
+                  {task.type && (
+                    <View style={styles.typeBadge}>
+                      <Text style={styles.typeText}>{task.type}</Text>
+                    </View>
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={() => handleEditTask(task)}
+                  style={styles.editButton}
+                >
+                  <Edit2 size={20} color="#8b5cf6" />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
         {/* ── Completed Tasks ── */}
         {completedTasks.length > 0 && (
@@ -676,6 +793,7 @@ export default function AllTasksScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
+<<<<<<< HEAD
       {/* ── FAB ── */}
       <TouchableOpacity
         style={styles.fab}
@@ -763,6 +881,14 @@ export default function AllTasksScreen() {
           </View>
         </View>
       </Modal>
+=======
+      <TaskEditModal
+        visible={showEditModal}
+        task={editingTask}
+        onClose={handleCloseModal}
+        onSave={handleSaveTask}
+      />
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     </SafeAreaView>
   );
 }
@@ -1007,6 +1133,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 8,
   },
+  taskCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  taskInfo: {
+    flex: 1,
+  },
   taskName: {
     fontFamily: 'Nunito-SemiBold',
     fontSize: 16,
@@ -1064,6 +1198,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6B7280',
   },
+<<<<<<< HEAD
   completedHeading: {
     fontFamily: 'Nunito-SemiBold',
     fontSize: 13,
@@ -1073,6 +1208,12 @@ const styles = StyleSheet.create({
   },
 
   // ── Empty State ──────────────────────────────────────────────────────────────
+=======
+  editButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
   emptyState: {
     alignItems: 'center',
     marginTop: 60,

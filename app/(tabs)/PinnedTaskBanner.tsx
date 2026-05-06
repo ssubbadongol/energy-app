@@ -1,9 +1,9 @@
 import { Check, Pin, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { toggleLifeTaskCompleted } from './lifeTaskStorage';
-import { clearPinnedTask, getPinnedTask, PinnedTask } from './pinnedTaskStorage';
-import { getSharedTasks, updateSharedTasks } from './taskStorage';
+import { toggleLifeTaskCompleted } from '../lifeTaskStorage';
+import { clearPinnedTask, getPinnedTask, PinnedTask } from '../pinnedTaskStorage';
+import { getSharedTasks, updateSharedTasks } from '../taskStorage';
 
 interface PinnedTaskBannerProps {
   onUpdate?: () => void;

@@ -1,7 +1,7 @@
 import { Trash2, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { LifeTask, TimeOfDay, addLifeTask, deleteLifeTask, updateLifeTask } from './lifeTaskStorage';
+import { addLifeTask, deleteLifeTask, LifeTask, TimeOfDay, updateLifeTask } from '../lifeTaskStorage';
 
 interface LifeTaskModalProps {
   visible: boolean;
@@ -42,14 +42,14 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formName.trim() || !formTimeWindow.trim()) {
       Alert.alert('Error', 'Please fill in task name and time window');
       return;
     }
 
     if (isCreatingNew) {
-      addLifeTask({
+      await addLifeTask({
         emoji: formEmoji || '✨',
         name: formName,
         timeWindow: formTimeWindow,
@@ -59,7 +59,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
         repeats: formRepeats,
       });
     } else if (task) {
-      updateLifeTask(task.id, {
+      await updateLifeTask(task.id, {
         emoji: formEmoji,
         name: formName,
         timeWindow: formTimeWindow,
@@ -83,8 +83,8 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            deleteLifeTask(task.id);
+          onPress: async () => {
+            await deleteLifeTask(task.id);
             onSave();
             onClose();
           },

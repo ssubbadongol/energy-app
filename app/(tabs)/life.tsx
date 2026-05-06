@@ -2,9 +2,15 @@ import { Check, Coffee as CoffeeIcon, Edit2, Heart, LucideIcon, Moon, Plus, Sett
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getLifeTasks, initializeLifeTasks, LifeTask, TimeOfDay, toggleLifeTaskCompleted, toggleLifeTaskEnabled } from '../lifeTaskStorage';
+import { getPinnedTask, hasPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
 import LifeTaskModal from './LifeTaskModal';
+<<<<<<< HEAD
 import { getLifeTasks, LifeTask, TimeOfDay, toggleLifeTaskCompleted, toggleLifeTaskEnabled } from './lifeTaskStorage';
 import { pinTaskToNotification } from './notificationService';
+=======
+import PinnedTaskBanner from './PinnedTaskBanner';
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 export default function LifeTasksScreen() {
   const [tasks, setTasks] = useState<LifeTask[]>([]);
@@ -14,6 +20,13 @@ export default function LifeTasksScreen() {
 
   const [editingTask, setEditingTask] = useState<LifeTask | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+
+  useEffect(() => {
+    // Initialize life tasks from AsyncStorage on first load
+    initializeLifeTasks().then(() => {
+      setTasks(getLifeTasks());
+    });
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -48,12 +61,12 @@ export default function LifeTasksScreen() {
   };
 
   const getTimeColor = (timeOfDay: TimeOfDay) => {
-  switch(timeOfDay) {
-    case 'morning': return '#F59E0B';   // Morning = High energy (amber)
-    case 'midday': return '#8b5cf6';    // Midday = Medium energy (purple)
-    case 'evening': return '#38BDF8';   // Evening = Low energy (blue)
-  }
-};
+    switch(timeOfDay) {
+      case 'morning': return '#F59E0B';
+      case 'midday': return '#8b5cf6';
+      case 'evening': return '#38BDF8';
+    }
+  };
 
   const getTimeLabel = (timeOfDay: TimeOfDay) => {
     switch(timeOfDay) {
@@ -63,13 +76,13 @@ export default function LifeTasksScreen() {
     }
   };
 
-  const handleToggleTask = (id: string) => {
-    toggleLifeTaskCompleted(id);
+  const handleToggleTask = async (id: string) => {
+    await toggleLifeTaskCompleted(id);
     setTasks(getLifeTasks());
   };
 
-  const handleToggleEnabled = (id: string) => {
-    toggleLifeTaskEnabled(id);
+  const handleToggleEnabled = async (id: string) => {
+    await toggleLifeTaskEnabled(id);
     setTasks(getLifeTasks());
   };
 
@@ -107,10 +120,16 @@ export default function LifeTasksScreen() {
 
   // Setup screen
   if (showSetup) {
+<<<<<<< HEAD
   return (
   <SafeAreaView style={styles.container} edges={['top']}>
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
    
+=======
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
           <View style={styles.setupHeader}>
             <Heart size={40} color="#8b5cf6" />
             <Text style={styles.setupTitle}>Manage Your Reminders</Text>
@@ -180,17 +199,21 @@ export default function LifeTasksScreen() {
           onClose={() => setShowEditModal(false)}
           onSave={() => setTasks(getLifeTasks())}
         />
-        </SafeAreaView>
-
+      </SafeAreaView>
     );
   }
 
   // Main screen - No tasks enabled yet
   if (!hasAnyEnabled) {
     return (
+<<<<<<< HEAD
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
     
+=======
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
           <View style={styles.emptyState}>
             <Heart size={60} color="#8b5cf6" />
             <Text style={styles.emptyTitle}>Life Tasks</Text>
@@ -206,16 +229,22 @@ export default function LifeTasksScreen() {
               <Text style={styles.setupButtonText}>Choose Your Reminders</Text>
             </TouchableOpacity>
           </View>
-       </ScrollView>
-  </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   // Main screen - With enabled tasks
   return (
+<<<<<<< HEAD
   <SafeAreaView style={styles.container} edges={['top']}>
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
 
+=======
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
         <View style={styles.headerContainer}>
           <View>
             <Text style={styles.title}>Life Tasks</Text>
@@ -247,55 +276,59 @@ export default function LifeTasksScreen() {
               </View>
 
               {enabledTasksForTime.map(task => (
-              <TouchableOpacity
-                key={task.id}
-                onPress={() => handleToggleTask(task.id)}
-                onLongPress={() => handleLongPressLifeTask(task)}
-                delayLongPress={500}
-                style={[styles.taskCard, task.completed && styles.taskCardCompleted]}
-              >
-                <View style={styles.taskLeft}>
-                  <View style={[styles.checkbox, task.completed && styles.checkboxCompleted]}>
-                    {task.completed && <Check size={16} color="#fff" />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.taskNameRow}>
-                      <Text style={styles.taskEmoji}>{task.emoji}</Text>
-                      <Text style={[styles.taskName, task.completed && styles.taskNameCompleted]}>
-                        {task.name}
-                      </Text>
+                <TouchableOpacity
+                  key={task.id}
+                  onPress={() => handleToggleTask(task.id)}
+                  onLongPress={() => handleLongPressLifeTask(task)}
+                  delayLongPress={500}
+                  style={[styles.taskCard, task.completed && styles.taskCardCompleted]}
+                >
+                  <View style={styles.taskLeft}>
+                    <View style={[styles.checkbox, task.completed && styles.checkboxCompleted]}>
+                      {task.completed && <Check size={16} color="#fff" />}
                     </View>
-                    <Text style={styles.taskTime}>Anytime between {task.timeWindow}</Text>
-                    {task.repeats && task.repeats > 1 && (
-                      <View style={styles.progressContainer}>
-                        <View style={styles.progressDots}>
-                          {Array.from({ length: task.repeats }).map((_, index) => (
-                            <View
-                              key={index}
-                              style={[
-                                styles.progressDot,
-                                index < task.completedCount && styles.progressDotFilled,
-                              ]}
-                            />
-                          ))}
-                        </View>
-                        <Text style={styles.progressTextSmall}>
-                          {task.completed 
-                            ? 'All done! 🎉' 
-                            : task.completedCount > 0 
-                              ? `${task.completedCount}/${task.repeats} done today`
-                              : `${task.repeats}x today`}
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.taskNameRow}>
+                        <Text style={styles.taskEmoji}>{task.emoji}</Text>
+                        <Text style={[styles.taskName, task.completed && styles.taskNameCompleted]}>
+                          {task.name}
                         </Text>
                       </View>
+<<<<<<< HEAD
                     )}
+=======
+                      <Text style={styles.taskTime}>Anytime between {task.timeWindow}</Text>
+                      {task.repeats && task.repeats > 1 && (
+                        <View style={styles.progressContainer}>
+                          <View style={styles.progressDots}>
+                            {Array.from({ length: task.repeats }).map((_, index) => (
+                              <View
+                                key={index}
+                                style={[
+                                  styles.progressDot,
+                                  index < task.completedCount && styles.progressDotFilled,
+                                ]}
+                              />
+                            ))}
+                          </View>
+                          <Text style={styles.progressTextSmall}>
+                            {task.completed 
+                              ? 'All done! 🎉' 
+                              : task.completedCount > 0 
+                                ? `${task.completedCount}/${task.repeats} done today`
+                                : `${task.repeats}x today`}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={styles.pinHint}>💡 Long-press to pin</Text>
+                    </View>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
                   </View>
-                </View>
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              ))}
             </View>
           );
         })}
-            
 
         <View style={styles.encouragement}>
           <Text style={styles.encouragementText}>
@@ -307,7 +340,7 @@ export default function LifeTasksScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
-  </SafeAreaView>
+    </SafeAreaView>
   );
 }
 

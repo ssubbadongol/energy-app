@@ -17,6 +17,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+<<<<<<< HEAD
 import { pinTaskToNotification } from './notificationService';
 import { cancelTaskNotifications } from './taskNotificationService';
 import { getSharedTasks, Task, updateSharedTasks } from './taskStorage';
@@ -35,6 +36,13 @@ function formatCurrentTime(date: Date): string {
   const mm = minutes < 10 ? `0${minutes}` : `${minutes}`;
   return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()} • ${hours}:${mm} ${ampm}`;
 }
+=======
+import { getPinnedTask, hasPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
+import { getSharedTasks, initializeTasks, Task, updateSharedTasks } from '../taskStorage';
+import PinnedTaskBanner from './PinnedTaskBanner';
+
+type EnergyLevel = 'high' | 'medium' | 'low';
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 function formatDueTime(dueTime: string): string {
   const [h, m] = dueTime.split(':').map(Number);
@@ -205,15 +213,54 @@ export default function HomeScreen() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
+<<<<<<< HEAD
     setTasks(getSharedTasks());
     const timer = setInterval(() => setCurrentTime(new Date()), 60_000);
+=======
+    // Initialize tasks from AsyncStorage on first load
+    initializeTasks().then(() => {
+      setTasks(getSharedTasks());
+    });
+    
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
+<<<<<<< HEAD
     const interval = setInterval(() => setTasks(getSharedTasks()), 500);
     return () => clearInterval(interval);
   }, []);
+=======
+    const interval = setInterval(() => {
+      const latestTasks = getSharedTasks();
+      setTasks(latestTasks);
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatTime = (date: Date) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    const dayName = days[date.getDay()];
+    const monthName = months[date.getMonth()];
+    const day = date.getDate();
+    
+    let hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+    
+    return `${dayName}, ${monthName} ${day} • ${hours}:${minutesStr} ${ampm}`;
+  };
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
   const isToday = (dateString?: string) => {
     if (!dateString) return true;
@@ -227,6 +274,7 @@ export default function HomeScreen() {
     return false;
   };
 
+<<<<<<< HEAD
   const toggleTask = (id: number) => {
     const task = tasks.find(t => t.id === id);
     if (task && !task.completed && task.notificationIds?.length) {
@@ -241,6 +289,12 @@ export default function HomeScreen() {
     if (currentEnergy === 'high') return "You're at peak energy. Perfect time for challenging tasks!";
     if (currentEnergy === 'medium') return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
     return "Low energy detected. Focus on simple admin tasks or take a break.";
+=======
+  const toggleTask = async (id: number) => {
+    const updatedTasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+    setTasks(updatedTasks);
+    await updateSharedTasks(updatedTasks);
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
   };
 
   const todayTasks = tasks.filter(t => isToday(t.dueDate));
@@ -258,12 +312,37 @@ export default function HomeScreen() {
     Alert.alert('Pinned', `"${task.name}" pinned to your notifications.`, [{ text: 'OK' }]);
   };
 
+<<<<<<< HEAD
   const showTips = () => {
     Alert.alert(
       'Tips',
       '• Swipe right on a task to mark it complete\n• Long press a task to pin it to the top',
       [{ text: 'Got it' }]
     );
+=======
+  const getEnergyColor = (level: EnergyLevel) => {
+    switch(level) {
+      case 'high': return '#F59E0B';
+      case 'medium': return '#8b5cf6';
+      case 'low': return '#38BDF8';
+    }
+  };
+
+  const getEnergyCardColor = (level: EnergyLevel) => {
+    switch(level) {
+      case 'high': return { border: '#F59E0B', bg: '#FEF3C7' };
+      case 'medium': return { border: '#8b5cf6', bg: '#F3E8FF' };
+      case 'low': return { border: '#38BDF8', bg: '#E0F2FE' };
+    }
+  };
+
+  const getEnergyMessage = () => {
+    switch(currentEnergy) {
+      case 'high': return "You're at peak energy. Perfect time for challenging tasks!";
+      case 'medium': return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
+      case 'low': return "Low energy detected. Focus on simple admin tasks or take a break.";
+    }
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
   };
 
   // ── Energy selector ───────────────────────────────────────────────────────
@@ -303,12 +382,17 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+<<<<<<< HEAD
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
         {/* Header */}
+=======
+      <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>

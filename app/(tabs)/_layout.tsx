@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Heart, Home, List, PlusCircle } from 'lucide-react-native';
+import { Eye, Heart, Home, List, MessageCircle, PlusCircle } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -48,11 +48,26 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <PlusCircle size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="focus"
+        options={{
+          title: 'Focus',
+          tabBarIcon: ({ color, size }) => <Eye size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="talks"
+        options={{
+          title: 'Talks',
+          tabBarIcon: ({ color, size }) => <MessageCircle size={size} color={color} />,
+        }}
+      />
+      
       {/* Hide non-route files */}
       <Tabs.Screen
         name="taskStorage"
         options={{
-          href: null, // This makes it not appear as a route
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -64,19 +79,49 @@ export default function TabLayout() {
       <Tabs.Screen
         name="LifeTaskModal"
         options={{
-          href: null, // Hide the modal from tabs
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="TaskEditModal"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
         name="pinnedTaskStorage"
         options={{
-          href: null, // Hide pinned task storage
+          href: null,
         }}
       />
       <Tabs.Screen
         name="PinnedTaskBanner"
         options={{
-          href: null, // Hide pinned task banner component
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="firebase"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="podService"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="aiMentorService"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="elevenLabsService"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

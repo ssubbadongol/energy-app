@@ -1,7 +1,11 @@
 {
   "cli": {
+<<<<<<< HEAD
     "version": ">= 18.7.0",
     "appVersionSource": "remote"
+=======
+    "version": ">= 5.2.0"
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
   },
   "build": {
     "development": {
@@ -9,13 +13,34 @@
       "distribution": "internal"
     },
     "preview": {
+<<<<<<< HEAD
       "distribution": "internal"
     },
     "production": {
       "autoIncrement": true
+=======
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAc8AjDhGJloLb2YtYIAzmujM5trGtsVDM",
+        "EXPO_PUBLIC_ELEVENLABS_API_KEY": "sk_40b76b3217924d534875fb6f970fc49f7a7dc8f3a21694cc"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAc8AjDhGJloLb2YtYIAzmujM5trGtsVDM",
+        "EXPO_PUBLIC_ELEVENLABS_API_KEY": "sk_40b76b3217924d534875fb6f970fc49f7a7dc8f3a21694cc"
+      }
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     }
   },
   "submit": {
     "production": {}
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c

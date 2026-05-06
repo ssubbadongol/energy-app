@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+<<<<<<< HEAD
 import { TaskForm, TaskFormValues } from './TaskForm';
 import { scheduleTaskNotifications } from './taskNotificationService';
 import { addTask, updateTask } from './taskStorage';
+=======
+import { addTask, getSharedTasks } from '../taskStorage';
+
+type EnergyLevel = 'high' | 'medium' | 'low';
+type Priority = 'high' | 'medium' | 'low';
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 export default function AddTaskScreen() {
   // Incrementing this key remounts TaskForm, resetting all its internal state.
   const [formKey, setFormKey] = useState(0);
 
+<<<<<<< HEAD
   const resetForm = () => setFormKey(k => k + 1);
 
   const handleSave = async (values: TaskFormValues) => {
@@ -19,12 +27,27 @@ export default function AddTaskScreen() {
       energy: values.energy,
       time: values.time,
       type: values.type,
+=======
+  const handleAddTask = async () => {
+    if (!taskName.trim()) {
+      Alert.alert('Error', 'Please enter a task name');
+      return;
+    }
+
+    const newTask = await addTask({
+      name: taskName,
+      priority,
+      energy,
+      time: timeInMinutes,
+      type: taskType,
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
       completed: false,
       dueDate: values.dueDate.toISOString(),
       dueTime: values.dueTime ?? undefined,
       notificationIds: [],
     });
 
+<<<<<<< HEAD
     if (values.dueTime) {
       const ids = await scheduleTaskNotifications({
         id: newTask.id,
@@ -50,6 +73,59 @@ export default function AddTaskScreen() {
         { text: 'Add Another', onPress: resetForm },
         { text: 'Done', onPress: resetForm },
       ]);
+=======
+    console.log('✅ NEW TASK ADDED:', newTask);
+    console.log('📅 Due date:', dueDate.toISOString());
+    console.log('📊 Total tasks now:', getSharedTasks().length);
+
+    Alert.alert('Success', `Task "${taskName}" added!\n\nTotal tasks: ${getSharedTasks().length}`, [
+      { text: 'Add Another', onPress: () => {
+        setTaskName('');
+        setTimeInMinutes(30);
+        setTaskType('');
+        setDueDate(new Date());
+      }},
+      { text: 'Done', onPress: () => {
+        setTaskName('');
+        setTimeInMinutes(30);
+        setTaskType('');
+        setDueDate(new Date());
+      }}
+    ]);
+  };
+
+  const formatDate = (date: Date) => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  };
+
+  const formatTime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours === 0) return `${mins}m`;
+    if (mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
+  };
+
+  const getTimePickerValue = () => {
+    const date = new Date();
+    date.setHours(Math.floor(timeInMinutes / 60));
+    date.setMinutes(timeInMinutes % 60);
+    date.setSeconds(0);
+    return date;
+  };
+
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+    
+    if (selectedDate) {
+      const hours = selectedDate.getHours();
+      const minutes = selectedDate.getMinutes();
+      const totalMinutes = (hours * 60) + minutes;
+      setTimeInMinutes(totalMinutes > 0 ? totalMinutes : 1);
+>>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     }
   };
 
