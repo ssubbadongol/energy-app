@@ -1,15 +1,18 @@
 type EnergyLevel = 'high' | 'medium' | 'low';
 type Priority = 'high' | 'medium' | 'low';
 
-interface Task {
+export interface Task {
   id: number;
   name: string;
+  description?: string;
   priority: Priority;
   energy: EnergyLevel;
   time: number;
   type: string;
   completed: boolean;
   dueDate?: string;
+  dueTime?: string;        // "HH:MM" 24h, optional
+  notificationIds?: string[];
 }
 
 let sharedTasks: Task[] = [
@@ -29,7 +32,9 @@ export const updateSharedTasks = (tasks: Task[]) => {
 export const addTask = (task: Omit<Task, 'id'>) => {
   const newTask = { ...task, id: Date.now() };
   sharedTasks = [...sharedTasks, newTask];
-  console.log('Task added:', newTask);
-  console.log('Total tasks:', sharedTasks.length);
   return newTask;
+};
+
+export const updateTask = (id: number, updates: Partial<Task>) => {
+  sharedTasks = sharedTasks.map(t => t.id === id ? { ...t, ...updates } : t);
 };

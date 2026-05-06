@@ -7,9 +7,11 @@ export interface PinnedTask {
   name: string;
   type: PinnedTaskType;
   emoji?: string;
-  time?: number; // For regular tasks
-  timeWindow?: string; // For life tasks
-  pinnedAt: string; // ISO timestamp
+  time?: number;
+  timeWindow?: string;
+  repeats?: number;
+  completedCount?: number;
+  pinnedAt: string;
 }
 
 let pinnedTask: PinnedTask | null = null;

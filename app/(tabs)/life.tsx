@@ -4,15 +4,13 @@ import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } f
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LifeTaskModal from './LifeTaskModal';
 import { getLifeTasks, LifeTask, TimeOfDay, toggleLifeTaskCompleted, toggleLifeTaskEnabled } from './lifeTaskStorage';
-import PinnedTaskBanner from './PinnedTaskBanner';
-import { getPinnedTask, hasPinnedTask, setPinnedTask } from './pinnedTaskStorage';
+import { pinTaskToNotification } from './notificationService';
 
 export default function LifeTasksScreen() {
   const [tasks, setTasks] = useState<LifeTask[]>([]);
   const [showSetup, setShowSetup] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const isModalOpenRef = useRef(false);
-  const [, forceUpdate] = useState({});
 
   const [editingTask, setEditingTask] = useState<LifeTask | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -76,42 +74,16 @@ export default function LifeTasksScreen() {
   };
 
   const handleLongPressLifeTask = (task: LifeTask) => {
-    if (hasPinnedTask()) {
-      const currentPinned = getPinnedTask();
-      Alert.alert(
-        'Replace pinned task?',
-        `You already have "${currentPinned?.name}" pinned.\n\nReplace it with "${task.name}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Replace',
-            onPress: () => {
-              setPinnedTask({
-                id: task.id,
-                name: task.name,
-                type: 'life',
-                emoji: task.emoji,
-                timeWindow: task.timeWindow,
-                pinnedAt: new Date().toISOString(),
-              });
-              forceUpdate({});
-              Alert.alert('📌 Pinned!', `"${task.name}" is now in focus mode`);
-            },
-          },
-        ]
-      );
-    } else {
-      setPinnedTask({
-        id: task.id,
-        name: task.name,
-        type: 'life',
-        emoji: task.emoji,
-        timeWindow: task.timeWindow,
-        pinnedAt: new Date().toISOString(),
-      });
-      forceUpdate({});
-      Alert.alert('📌 Pinned!', `"${task.name}" is now in focus mode`);
-    }
+    pinTaskToNotification({
+      id: task.id,
+      name: task.name,
+      type: 'life',
+      emoji: task.emoji,
+      timeWindow: task.timeWindow,
+      repeats: task.repeats,
+      completedCount: task.completedCount,
+    });
+    Alert.alert('📌 Pinned!', `"${task.name}" is now in your notification tray`);
   };
 
   const openEditModal = (task: LifeTask) => {
@@ -137,7 +109,7 @@ export default function LifeTasksScreen() {
   if (showSetup) {
   return (
   <SafeAreaView style={styles.container} edges={['top']}>
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
    
           <View style={styles.setupHeader}>
             <Heart size={40} color="#8b5cf6" />
@@ -178,7 +150,7 @@ export default function LifeTasksScreen() {
                         onPress={() => openEditModal(task)}
                         style={styles.editIconButton}
                       >
-                        <Edit2 size={16} color="#666" />
+                        <Edit2 size={16} color="#9090b0" />
                       </TouchableOpacity>
                       <Switch
                         value={task.enabled}
@@ -217,7 +189,7 @@ export default function LifeTasksScreen() {
   if (!hasAnyEnabled) {
     return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
     
           <View style={styles.emptyState}>
             <Heart size={60} color="#8b5cf6" />
@@ -242,16 +214,15 @@ export default function LifeTasksScreen() {
   // Main screen - With enabled tasks
   return (
   <SafeAreaView style={styles.container} edges={['top']}>
-    <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-    
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+
         <View style={styles.headerContainer}>
           <View>
             <Text style={styles.title}>Life Tasks</Text>
             <Text style={styles.subtitle}>Taking care of yourself today 💙</Text>
           </View>
           <TouchableOpacity onPress={() => setShowSetup(true)}>
-            <Settings size={24} color="#fff" />
+            <Settings size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -317,7 +288,6 @@ export default function LifeTasksScreen() {
                         </Text>
                       </View>
                     )}
-                    <Text style={styles.pinHint}>💡 Long-press to pin</Text>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -344,7 +314,7 @@ export default function LifeTasksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8FAFC',
   },
   scrollView: {
     flex: 1,
@@ -353,7 +323,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   headerContainer: {
-    backgroundColor: 'rgba(139, 92, 246, 0.85)',
+    backgroundColor: '#0F172A',
     marginHorizontal: -20,
     marginTop: -20,
     padding: 24,
@@ -364,17 +334,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   title: {
+    fontFamily: 'Nunito-Bold',
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
+    color: '#FFFFFF',
     marginBottom: 4,
   },
   subtitle: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
+    color: 'rgba(255,255,255,0.65)',
   },
   emptyState: {
     alignItems: 'center',
@@ -382,49 +357,57 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   emptyTitle: {
+    fontFamily: 'Nunito-Bold',
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111',
+    color: '#111827',
     marginTop: 20,
     marginBottom: 8,
   },
   emptySubtitle: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 16,
-    color: '#666',
+    color: '#6B7280',
     marginBottom: 16,
   },
   emptyDescription: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#999',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 32,
   },
   setupButton: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#0F172A',
     paddingHorizontal: 32,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
   },
   setupButtonText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+    color: '#FFFFFF',
   },
   setupHeader: {
     alignItems: 'center',
     marginBottom: 32,
   },
   setupTitle: {
+    fontFamily: 'Nunito-Bold',
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111',
+    color: '#111827',
     marginTop: 16,
     marginBottom: 8,
   },
   setupSubtitle: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     textAlign: 'center',
     paddingHorizontal: 20,
   },
@@ -436,8 +419,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   setupSectionHeaderLeft: {
     flexDirection: 'row',
@@ -445,16 +430,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   setupSectionTitle: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 16,
-    fontWeight: '600',
   },
   addTaskButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   setupItem: {
     flexDirection: 'row',
@@ -462,9 +449,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   setupItemLeft: {
     flexDirection: 'row',
@@ -484,26 +478,32 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   setupItemName: {
+    fontFamily: 'Nunito-Medium',
     fontSize: 16,
-    fontWeight: '500',
-    color: '#111',
+    color: '#111827',
   },
   setupItemTime: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 12,
-    color: '#999',
+    color: '#6B7280',
     marginTop: 2,
   },
   doneButton: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#0F172A',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
     marginTop: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
   },
   doneButtonText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
+    color: '#FFFFFF',
   },
   section: {
     marginBottom: 24,
@@ -513,8 +513,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   sectionLeft: {
     flexDirection: 'row',
@@ -522,28 +524,38 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 18,
-    fontWeight: '600',
   },
   progressBadge: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   progressText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 13,
-    color: '#8b5cf6',
-    fontWeight: '600',
+    color: '#111827',
   },
   taskCard: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   taskCardCompleted: {
     backgroundColor: '#f0fdf4',
+    borderColor: 'rgba(34, 197, 94, 0.2)',
   },
   taskLeft: {
     flexDirection: 'row',
@@ -555,7 +567,7 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#d1d5db',
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -572,28 +584,33 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   taskName: {
+    fontFamily: 'Nunito-Medium',
     fontSize: 16,
-    fontWeight: '500',
-    color: '#111',
+    color: '#111827',
   },
   taskNameCompleted: {
-    color: '#666',
+    fontFamily: 'Nunito-Regular',
+    color: '#6B7280',
     textDecorationLine: 'line-through',
   },
   taskTime: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 12,
-    color: '#999',
+    color: '#6B7280',
     marginTop: 4,
   },
   encouragement: {
-    backgroundColor: '#f8f4ff',
+    backgroundColor: '#F1F5F9',
     padding: 20,
-    borderRadius: 12,
+    borderRadius: 14,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   encouragementText: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#8b5cf6',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -609,19 +626,14 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#d1d5db',
+    backgroundColor: '#E5E7EB',
   },
   progressDotFilled: {
     backgroundColor: '#22c55e',
   },
   progressTextSmall: {
+    fontFamily: 'Nunito-Medium',
     fontSize: 11,
-    color: '#8b5cf6',
-    fontWeight: '500',
-  },
-  pinHint: {
-    fontSize: 10,
-    color: '#8b5cf6',
-    marginTop: 6,
+    color: '#6B7280',
   },
 });

@@ -102,7 +102,7 @@ export default function PinnedTaskBanner({ onUpdate }: PinnedTaskBannerProps) {
             style={[styles.actionButton, styles.unpinButton]}
             onPress={handleUnpin}
           >
-            <X size={16} color="#666" />
+            <X size={16} color="#9090b0" />
           </TouchableOpacity>
         </View>
       </View>
@@ -114,16 +114,22 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: '#ede9f8',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: 'rgba(139, 92, 246, 0.1)',
   },
   banner: {
-    backgroundColor: '#f8f4ff',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#e9d5ff',
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+    borderTopColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   header: {
     flexDirection: 'row',
@@ -132,8 +138,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   headerText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 11,
-    fontWeight: '600',
     color: '#8b5cf6',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -151,14 +157,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   taskName: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 15,
-    fontWeight: '600',
-    color: '#111',
+    color: '#1a0a3e',
     marginBottom: 2,
   },
   taskMeta: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 12,
-    color: '#666',
+    color: '#6b6b8a',
   },
   actions: {
     flexDirection: 'row',
@@ -170,20 +177,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     gap: 4,
   },
   doneButton: {
     flex: 1,
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#7c3aed',
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   doneButtonText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 14,
-    fontWeight: '600',
     color: '#fff',
   },
   unpinButton: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
     paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
   },
 });

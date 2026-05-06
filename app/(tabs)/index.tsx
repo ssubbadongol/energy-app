@@ -1,72 +1,223 @@
-import { Check, Clock, Coffee, Moon, Zap } from 'lucide-react-native';
+import { Check, Clock, Coffee, Info, Moon, Zap } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { Alert, Animated, PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  Vibration,
+  View,
+} from 'react-native';
+import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import PinnedTaskBanner from './PinnedTaskBanner';
-import { getPinnedTask, hasPinnedTask, setPinnedTask } from './pinnedTaskStorage';
-import { getSharedTasks, updateSharedTasks } from './taskStorage';
+import { pinTaskToNotification } from './notificationService';
+import { cancelTaskNotifications } from './taskNotificationService';
+import { getSharedTasks, Task, updateSharedTasks } from './taskStorage';
 
 type EnergyLevel = 'high' | 'medium' | 'low';
-type Priority = 'high' | 'medium' | 'low';
 
-interface Task {
-  id: number;
-  name: string;
-  priority: Priority;
-  energy: EnergyLevel;
-  time: number;
-  type: string;
-  completed: boolean;
-  dueDate?: string;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatCurrentTime(date: Date): string {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  const mm = minutes < 10 ? `0${minutes}` : `${minutes}`;
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()} • ${hours}:${mm} ${ampm}`;
 }
+
+function formatDueTime(dueTime: string): string {
+  const [h, m] = dueTime.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function getEnergyIcon(level: EnergyLevel) {
+  if (level === 'high') return Zap;
+  if (level === 'medium') return Coffee;
+  return Moon;
+}
+
+function getEnergyColor(level: EnergyLevel): string {
+  if (level === 'high') return '#F59E0B';
+  if (level === 'medium') return '#8b5cf6';
+  return '#38BDF8';
+}
+
+function getEnergyCardColor(level: EnergyLevel): { border: string; bg: string } {
+  if (level === 'high') return { border: '#F59E0B', bg: '#fffaf0' };
+  if (level === 'medium') return { border: '#8b5cf6', bg: '#f7f3ff' };
+  return { border: '#38BDF8', bg: '#f0f8ff' };
+}
+
+// ── Swipeable Task Card ───────────────────────────────────────────────────────
+
+function TaskCard({
+  task,
+  suggested,
+  onComplete,
+  onPin,
+}: {
+  task: Task;
+  suggested: boolean;
+  onComplete: () => void;
+  onPin: () => void;
+}) {
+  const colors = getEnergyCardColor(task.energy as EnergyLevel);
+  const EnergyIcon = getEnergyIcon(task.energy as EnergyLevel);
+
+  const translateX = useSharedValue(0);
+  const bgOpacity = useSharedValue(0);
+
+  const cardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+  const revealStyle = useAnimatedStyle(() => ({
+    opacity: bgOpacity.value,
+  }));
+
+  const pan = Gesture.Pan()
+    .activeOffsetX([-5, 5])
+    .failOffsetY([-10, 10])
+    .onUpdate((e) => {
+      if (e.translationX > 0) {
+        translateX.value = e.translationX;
+        bgOpacity.value = Math.min(e.translationX / 80, 1);
+      }
+    })
+    .onEnd((e) => {
+      if (e.translationX > 80) {
+        translateX.value = withTiming(420, { duration: 180 }, (finished) => {
+          if (finished) {
+            runOnJS(onComplete)();
+            translateX.value = 0;
+            bgOpacity.value = 0;
+          }
+        });
+      } else {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+        bgOpacity.value = withSpring(0);
+      }
+    });
+
+  const longPress = Gesture.LongPress()
+    .minDuration(400)
+    .onStart(() => {
+      runOnJS(Vibration.vibrate)(40);
+      runOnJS(onPin)();
+    });
+
+  const composed = Gesture.Race(longPress, pan);
+
+  return (
+    <View style={styles.swipeWrapper}>
+      <Animated.View style={[styles.swipeBg, revealStyle]}>
+        <Check size={18} color="#fff" />
+      </Animated.View>
+
+      <GestureDetector gesture={composed}>
+        <Animated.View
+          style={[
+            styles.taskCard,
+            { borderLeftColor: colors.border, backgroundColor: '#FFFFFF' },
+            !suggested && styles.taskCardFaded,
+            { marginBottom: 0 },
+            cardStyle,
+          ]}
+        >
+          <View style={styles.taskHeader}>
+            <Text style={styles.taskName} numberOfLines={2}>{task.name}</Text>
+            {suggested && (
+              <View style={styles.recommendedBadge}>
+                <Text style={styles.recommendedText}>Now</Text>
+              </View>
+            )}
+          </View>
+
+          {task.dueTime ? (
+            <Text style={styles.dueTime}>Due {formatDueTime(task.dueTime)}</Text>
+          ) : null}
+
+          <View style={styles.taskMeta}>
+            <View style={styles.metaItem}>
+              <Clock size={13} color="#9090b0" />
+              <Text style={styles.metaText}>{task.time}m</Text>
+            </View>
+            <View style={styles.metaItem}>
+              <EnergyIcon size={13} color={getEnergyColor(task.energy as EnergyLevel)} />
+              <Text style={styles.metaText}>{task.energy}</Text>
+            </View>
+            {task.type ? (
+              <View style={styles.typeBadge}>
+                <Text style={styles.typeText}>{task.type}</Text>
+              </View>
+            ) : null}
+          </View>
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+// ── Completed Task Card ───────────────────────────────────────────────────────
+
+function CompletedTaskCard({ task, onToggle }: { task: Task; onToggle: () => void }) {
+  const colors = getEnergyCardColor(task.energy as EnergyLevel);
+
+  return (
+    <TouchableOpacity
+      onPress={onToggle}
+      style={[styles.taskCard, { borderLeftColor: colors.border, backgroundColor: '#FFFFFF' }, styles.taskCardCompleted]}
+      activeOpacity={0.7}
+    >
+      <Text style={[styles.taskName, styles.taskNameCompleted]} numberOfLines={2}>
+        {task.name}
+      </Text>
+      {task.dueTime ? (
+        <Text style={[styles.dueTime, { opacity: 0.6 }]}>Due {formatDueTime(task.dueTime)}</Text>
+      ) : null}
+      <View style={styles.taskMeta}>
+        <View style={styles.metaItem}>
+          <Clock size={13} color="#9090b0" />
+          <Text style={styles.metaText}>{task.time}m</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const [currentEnergy, setCurrentEnergy] = useState<EnergyLevel>('medium');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [, forceUpdate] = useState({});
 
   useEffect(() => {
     setTasks(getSharedTasks());
-    
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-
+    const timer = setInterval(() => setCurrentTime(new Date()), 60_000);
     return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-  const interval = setInterval(() => {
-    const latestTasks = getSharedTasks();
-    setTasks(latestTasks);
-  }, 500); // Check every 500ms
-  return () => clearInterval(interval);
-}, []);
-
-  const formatTime = (date: Date) => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
-    const dayName = days[date.getDay()];
-    const monthName = months[date.getMonth()];
-    const day = date.getDate();
-    
-    let hours = date.getHours();
-    const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    const minutesStr = minutes < 10 ? '0' + minutes : minutes;
-    
-    return `${dayName}, ${monthName} ${day} • ${hours}:${minutesStr} ${ampm}`;
-  };
+    const interval = setInterval(() => setTasks(getSharedTasks()), 500);
+    return () => clearInterval(interval);
+  }, []);
 
   const isToday = (dateString?: string) => {
     if (!dateString) return true;
-    const taskDate = new Date(dateString);
-    const today = new Date();
-    return taskDate.toDateString() === today.toDateString();
+    return new Date(dateString).toDateString() === new Date().toDateString();
   };
 
   const energyMatch = (taskEnergy: EnergyLevel) => {
@@ -77,55 +228,51 @@ export default function HomeScreen() {
   };
 
   const toggleTask = (id: number) => {
-    const updatedTasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
-    setTasks(updatedTasks);
-    updateSharedTasks(updatedTasks);
+    const task = tasks.find(t => t.id === id);
+    if (task && !task.completed && task.notificationIds?.length) {
+      cancelTaskNotifications(task.notificationIds);
+    }
+    const updated = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+    setTasks(updated);
+    updateSharedTasks(updated);
+  };
+
+  const getEnergyMessage = () => {
+    if (currentEnergy === 'high') return "You're at peak energy. Perfect time for challenging tasks!";
+    if (currentEnergy === 'medium') return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
+    return "Low energy detected. Focus on simple admin tasks or take a break.";
   };
 
   const todayTasks = tasks.filter(t => isToday(t.dueDate));
-  const suggestedTasks = todayTasks.filter(t => !t.completed && energyMatch(t.energy));
-  const otherTasks = todayTasks.filter(t => !t.completed && !energyMatch(t.energy));
+  const suggestedTasks = todayTasks.filter(t => !t.completed && energyMatch(t.energy as EnergyLevel));
+  const otherTasks = todayTasks.filter(t => !t.completed && !energyMatch(t.energy as EnergyLevel));
   const completedTasks = todayTasks.filter(t => t.completed);
 
-  const getEnergyIcon = (level: EnergyLevel) => {
-    switch(level) {
-      case 'high': return Zap;
-      case 'medium': return Coffee;
-      case 'low': return Moon;
-    }
+  const pinTask = (task: Task) => {
+    pinTaskToNotification({
+      id: task.id,
+      name: task.name,
+      type: 'task',
+      time: task.time,
+    }).catch(() => {});
+    Alert.alert('Pinned', `"${task.name}" pinned to your notifications.`, [{ text: 'OK' }]);
   };
 
-  const getEnergyColor = (level: EnergyLevel) => {
-  switch(level) {
-    case 'high': return '#F59E0B';      // Warm amber - "You've got this!"
-    case 'medium': return '#8b5cf6';    // Purple - "Steady focus"
-    case 'low': return '#38BDF8';       // Sky blue - "It's okay to go slow"
-  }
-};
-
-  const getEnergyCardColor = (level: EnergyLevel) => {
-  switch(level) {
-    case 'high': return { border: '#F59E0B', bg: '#FEF3C7' };      // Amber border, warm yellow bg
-    case 'medium': return { border: '#8b5cf6', bg: '#F3E8FF' };    // Purple border, light purple bg
-    case 'low': return { border: '#38BDF8', bg: '#E0F2FE' };       // Blue border, light blue bg
-  }
-};
-
-  const getEnergyMessage = () => {
-    switch(currentEnergy) {
-      case 'high': return "You're at peak energy. Perfect time for challenging tasks!";
-      case 'medium': return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
-      case 'low': return "Low energy detected. Focus on simple admin tasks or take a break.";
-    }
+  const showTips = () => {
+    Alert.alert(
+      'Tips',
+      '• Swipe right on a task to mark it complete\n• Long press a task to pin it to the top',
+      [{ text: 'Got it' }]
+    );
   };
+
+  // ── Energy selector ───────────────────────────────────────────────────────
 
   const EnergySelector = () => (
     <View style={styles.energyCard}>
-      <View style={styles.energyHeader}>
-        <Text style={styles.energyTitle}>How&apos;s your energy right now?</Text>
-      </View>
+      <Text style={styles.energyTitle}>{"How's your energy right now?"}</Text>
       <View style={styles.energyButtons}>
-        {(['high', 'medium', 'low'] as EnergyLevel[]).map((level) => {
+        {(['high', 'medium', 'low'] as EnergyLevel[]).map(level => {
           const Icon = getEnergyIcon(level);
           return (
             <TouchableOpacity
@@ -133,11 +280,16 @@ export default function HomeScreen() {
               onPress={() => setCurrentEnergy(level)}
               style={[
                 styles.energyButton,
-                currentEnergy === level && { backgroundColor: getEnergyColor(level) }
+                currentEnergy === level && { backgroundColor: getEnergyColor(level) },
               ]}
             >
               <Icon size={20} color={currentEnergy === level ? '#fff' : '#666'} />
-              <Text style={[styles.energyButtonText, currentEnergy === level && styles.energyButtonTextActive]}>
+              <Text
+                style={[
+                  styles.energyButtonText,
+                  currentEnergy === level && styles.energyButtonTextActive,
+                ]}
+              >
                 {level.charAt(0).toUpperCase() + level.slice(1)}
               </Text>
             </TouchableOpacity>
@@ -147,238 +299,113 @@ export default function HomeScreen() {
     </View>
   );
 
-  const SwipeableTaskCard = ({ task, suggested }: { task: Task; suggested: boolean }) => {
-    const [pan] = useState(new Animated.ValueXY());
-    const colors = getEnergyCardColor(task.energy);
-    const EnergyIcon = getEnergyIcon(task.energy);
-
-    const handleLongPress = () => {
-      if (hasPinnedTask()) {
-        const currentPinned = getPinnedTask();
-        Alert.alert(
-          'Replace pinned task?',
-          `You already have "${currentPinned?.name}" pinned.\n\nReplace it with "${task.name}"?`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Replace',
-              onPress: () => {
-                setPinnedTask({
-                  id: task.id,
-                  name: task.name,
-                  type: 'task',
-                  time: task.time,
-                  pinnedAt: new Date().toISOString(),
-                });
-                forceUpdate({});
-                Alert.alert('📌 Pinned!', `"${task.name}" is now in focus mode`);
-              },
-            },
-          ]
-        );
-      } else {
-        setPinnedTask({
-          id: task.id,
-          name: task.name,
-          type: 'task',
-          time: task.time,
-          pinnedAt: new Date().toISOString(),
-        });
-        forceUpdate({});
-        Alert.alert('📌 Pinned!', `"${task.name}" is now in focus mode`);
-      }
-    };
-
-    const panResponder = PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        if (Math.abs(gesture.dx) > Math.abs(gesture.dy)) {
-          pan.setValue({ x: gesture.dx, y: 0 });
-        }
-      },
-      onPanResponderRelease: (_, gesture) => {
-        const swipeThreshold = 120;
-        
-        if (Math.abs(gesture.dx) > swipeThreshold) {
-          Animated.timing(pan, {
-            toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 },
-            duration: 200,
-            useNativeDriver: false,
-          }).start(() => {
-            toggleTask(task.id);
-            pan.setValue({ x: 0, y: 0 });
-          });
-        } else {
-          Animated.spring(pan, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    });
-
-    return (
-      <View style={styles.swipeContainer}>
-        {suggested && (
-          <View style={styles.swipeBackground}>
-            <Check size={24} color="#22c55e" />
-            <Text style={styles.swipeText}>Complete</Text>
-          </View>
-        )}
-        <TouchableOpacity
-          onLongPress={handleLongPress}
-          delayLongPress={500}
-          activeOpacity={1}
-        >
-          <Animated.View
-            {...panResponder.panHandlers}
-            style={[
-              styles.taskCard,
-              { borderLeftColor: colors.border, backgroundColor: colors.bg },
-              !suggested && styles.taskCardFaded,
-              {
-                transform: [{ translateX: pan.x }],
-              },
-            ]}
-          >
-            <View style={styles.taskContent}>
-              <View style={styles.taskMain}>
-                <View style={styles.taskHeader}>
-                  <Text style={styles.taskName}>{task.name}</Text>
-                  {suggested && <View style={styles.recommendedBadge}><Text style={styles.recommendedText}>Recommended</Text></View>}
-                </View>
-                <View style={styles.taskMeta}>
-                  <View style={styles.metaItem}>
-                    <Clock size={16} color="#666" />
-                    <Text style={styles.metaText}>{task.time}m</Text>
-                  </View>
-                  <View style={styles.metaItem}>
-                    <EnergyIcon size={16} color={getEnergyColor(task.energy)} />
-                    <Text style={styles.metaText}>{task.energy} energy</Text>
-                  </View>
-                  {task.type && (
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeText}>{task.type}</Text>
-                    </View>
-                  )}
-                </View>
-                {suggested && <Text style={styles.swipeHint}>← Swipe to complete →</Text>}
-                <Text style={styles.pinHint}>💡 Long-press to pin</Text>
-              </View>
-            </View>
-          </Animated.View>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const CompletedTaskCard = ({ task }: { task: Task }) => {
-    const colors = getEnergyCardColor(task.energy);
-    const EnergyIcon = getEnergyIcon(task.energy);
-
-    return (
-      <TouchableOpacity 
-        onPress={() => toggleTask(task.id)}
-        style={[styles.taskCard, { borderLeftColor: colors.border, backgroundColor: colors.bg }, styles.taskCardCompleted]}
-      >
-        <View style={styles.taskContent}>
-          <View style={styles.taskMain}>
-            <View style={styles.taskHeader}>
-              <Text style={[styles.taskName, styles.taskNameCompleted]}>{task.name}</Text>
-            </View>
-            <View style={styles.taskMeta}>
-              <View style={styles.metaItem}>
-                <Clock size={16} color="#666" />
-                <Text style={styles.metaText}>{task.time}m</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <EnergyIcon size={16} color={getEnergyColor(task.energy)} />
-                <Text style={styles.metaText}>{task.energy} energy</Text>
-              </View>
-              {task.type && (
-                <View style={styles.typeBadge}>
-                  <Text style={styles.typeText}>{task.type}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-          <View style={[styles.checkbox, styles.checkboxChecked]}>
-            <Check size={16} color="#8b5cf6" />
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-  <SafeAreaView style={styles.container} edges={['top']}>
-    <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
         <View style={styles.headerContainer}>
-          <Text style={styles.title}>Today&apos;s Focus</Text>
-          <Text style={styles.subtitle}>{formatTime(currentTime)}</Text>
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{"Today's Focus"}</Text>
+              <Text style={styles.subtitle}>{formatCurrentTime(currentTime)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.infoBtn}
+              onPress={showTips}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.75}
+            >
+              <Info size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <EnergySelector />
 
+        {/* Energy insight banner */}
         <View style={styles.insightBanner}>
-          <Zap size={20} color="#fff" />
-          <View style={styles.insightContent}>
-            <Text style={styles.insightTitle}>Good news!</Text>
-            <Text style={styles.insightText}>{getEnergyMessage()}</Text>
-          </View>
+          <Zap size={18} color="#6B7280" />
+          <Text style={styles.insightText}>{getEnergyMessage()}</Text>
         </View>
 
+        {/* Suggested tasks */}
         {suggestedTasks.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <View style={styles.taskCount}>
-                <Text style={styles.taskCountText}>{suggestedTasks.length} tasks</Text>
-              </View>
               <Text style={styles.sectionTitle}>Matched to Your Energy</Text>
+              <View style={styles.taskCountBadge}>
+                <Text style={styles.taskCountText}>{suggestedTasks.length}</Text>
+              </View>
             </View>
             {suggestedTasks.map(task => (
-              <SwipeableTaskCard key={task.id} task={task} suggested={true} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                suggested={true}
+                onComplete={() => toggleTask(task.id)}
+                onPin={() => pinTask(task)}
+              />
             ))}
           </View>
         )}
 
+        {/* Other tasks */}
         {otherTasks.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.laterTitle}>Save these for later ({otherTasks.length}) • Not matched to current energy</Text>
+            <Text style={styles.laterTitle}>
+              Save for later ({otherTasks.length}) · Not matched to your energy
+            </Text>
             {otherTasks.map(task => (
-              <SwipeableTaskCard key={task.id} task={task} suggested={false} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                suggested={false}
+                onComplete={() => toggleTask(task.id)}
+                onPin={() => pinTask(task)}
+              />
             ))}
           </View>
         )}
 
+        {/* Completed tasks */}
         {completedTasks.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.completedTitle}>Completed Today 🎉</Text>
             {completedTasks.map(task => (
-              <CompletedTaskCard key={task.id} task={task} />
+              <CompletedTaskCard
+                key={task.id}
+                task={task}
+                onToggle={() => toggleTask(task.id)}
+              />
             ))}
           </View>
         )}
 
         {suggestedTasks.length === 0 && otherTasks.length === 0 && completedTasks.length === 0 && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No tasks for today! 🎉</Text>
+            <Text style={styles.emptyText}>No tasks for today 🎉</Text>
             <Text style={styles.emptySubtext}>Add a task to get started</Text>
           </View>
         )}
 
         <View style={{ height: 100 }} />
-       </ScrollView>
-  </SafeAreaView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8FAFC',
   },
   scrollView: {
     flex: 1,
@@ -386,8 +413,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
   },
+
+  // ── Header ──────────────────────────────────────────────────────────────────
   headerContainer: {
-    backgroundColor: 'rgba(139, 92, 246, 0.85)',
+    backgroundColor: '#0F172A',
     marginHorizontal: -20,
     marginTop: -20,
     padding: 24,
@@ -395,242 +424,260 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   title: {
+    fontFamily: 'Nunito-Bold',
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
+    color: '#FFFFFF',
     marginBottom: 4,
   },
   subtitle: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
+    color: 'rgba(255,255,255,0.65)',
   },
+  infoBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginLeft: 12,
+  },
+
+  // ── Energy Selector ──────────────────────────────────────────────────────────
   energyCard: {
-    backgroundColor: '#f8f4ff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-  },
-  energyHeader: {
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   energyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 15,
+    color: '#111827',
+    marginBottom: 12,
   },
   energyButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   energyButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     gap: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   energyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 13,
+    color: '#6B7280',
   },
   energyButtonTextActive: {
     color: '#fff',
   },
+
+  // ── Insight Banner ───────────────────────────────────────────────────────────
   insightBanner: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
+    alignItems: 'center',
     marginBottom: 20,
-  },
-  insightContent: {
-    flex: 1,
-  },
-  insightTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   insightText: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 13,
-    color: '#fff',
-    opacity: 0.9,
+    color: '#6B7280',
+    flex: 1,
   },
+
+  // ── Section ──────────────────────────────────────────────────────────────────
   section: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 12,
-  },
-  taskCount: {
-    backgroundColor: '#f3e8ff',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  taskCountText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#8b5cf6',
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111',
+    fontFamily: 'Nunito-Bold',
+    fontSize: 17,
+    color: '#111827',
+  },
+  taskCountBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  taskCountText: {
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 12,
+    color: '#111827',
   },
   laterTitle: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 13,
-    color: '#666',
-    marginBottom: 12,
+    color: '#6B7280',
+    marginBottom: 10,
   },
   completedTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 12,
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 15,
+    color: '#6B7280',
+    marginBottom: 10,
   },
-  swipeContainer: {
-    marginBottom: 12,
-    position: 'relative',
+
+  // ── Swipe wrapper ────────────────────────────────────────────────────────────
+  swipeWrapper: {
+    marginBottom: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  swipeBackground: {
+  swipeBg: {
     position: 'absolute',
     top: 0,
-    right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: '#dcfce7',
-    borderRadius: 8,
+    right: 0,
+    backgroundColor: '#22c55e',
+    borderRadius: 16,
+    alignItems: 'flex-start',
     justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
+    paddingLeft: 20,
   },
-  swipeText: {
-    color: '#22c55e',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+
+  // ── Task Card ────────────────────────────────────────────────────────────────
   taskCard: {
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 16,
-    backgroundColor: '#fff',
+    borderLeftWidth: 3,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   taskCardFaded: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   taskCardCompleted: {
-    opacity: 0.7,
-  },
-  taskContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  taskMain: {
-    flex: 1,
+    opacity: 0.55,
   },
   taskHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 3,
   },
   taskName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111',
-    flexShrink: 1,
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 15,
+    color: '#111827',
+    flex: 1,
   },
   taskNameCompleted: {
     textDecorationLine: 'line-through',
-    color: '#666',
+    color: '#6B7280',
   },
   recommendedBadge: {
-    backgroundColor: '#8b5cf6',
-    paddingHorizontal: 8,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   recommendedText: {
-    fontSize: 11,
-    color: '#fff',
-    fontWeight: '600',
+    fontFamily: 'Nunito-SemiBold',
+    fontSize: 10,
+    color: '#FFFFFF',
+  },
+  dueTime: {
+    fontFamily: 'Nunito-Regular',
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 5,
   },
   taskMeta: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
     alignItems: 'center',
-    marginBottom: 4,
     flexWrap: 'wrap',
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   metaText: {
-    fontSize: 13,
-    color: '#666',
+    fontFamily: 'Nunito-Regular',
+    fontSize: 12,
+    color: '#6B7280',
   },
   typeBadge: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   typeText: {
-    fontSize: 11,
-    color: '#666',
-  },
-  swipeHint: {
-    fontSize: 11,
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  pinHint: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 10,
-    color: '#8b5cf6',
-    marginTop: 4,
+    color: '#6B7280',
   },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#d1d5db',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-  },
-  checkboxChecked: {
-    backgroundColor: '#f3e8ff',
-    borderColor: '#8b5cf6',
-  },
+
+  // ── Empty State ──────────────────────────────────────────────────────────────
   emptyState: {
     alignItems: 'center',
     marginTop: 60,
   },
   emptyText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 20,
-    fontWeight: '600',
-    color: '#666',
+    color: '#111827',
     marginBottom: 8,
   },
   emptySubtext: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 14,
-    color: '#999',
+    color: '#6B7280',
   },
 });

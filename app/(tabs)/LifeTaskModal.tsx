@@ -103,7 +103,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
                 {isCreatingNew ? 'Add Life Task' : 'Edit Task'}
               </Text>
               <TouchableOpacity onPress={onClose}>
-                <X size={24} color="#666" />
+                <X size={24} color="#9090b0" />
               </TouchableOpacity>
             </View>
 
@@ -115,6 +115,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
                   value={formEmoji}
                   onChangeText={setFormEmoji}
                   placeholder="✨"
+                  placeholderTextColor="#b0aac8"
                   maxLength={2}
                 />
               </View>
@@ -126,6 +127,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
                   value={formName}
                   onChangeText={setFormName}
                   placeholder="e.g., Meditate"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
                 />
               </View>
 
@@ -136,6 +138,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
                   value={formTimeWindow}
                   onChangeText={setFormTimeWindow}
                   placeholder="e.g., 7–9 AM"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
                 />
                 <Text style={styles.formHint}>Use format: &quot;7–9 AM&quot; or &quot;12–2 PM&quot;</Text>
               </View>
@@ -220,15 +223,24 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(26, 10, 62, 0.45)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: '#f5f3ff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 24,
     maxHeight: '85%',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.18)',
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 20,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -237,38 +249,51 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   modalTitle: {
+    fontFamily: 'Nunito-Bold',
     fontSize: 22,
-    fontWeight: 'bold',
-    color: '#111',
+    color: '#1a0a3e',
   },
   formSection: {
     marginBottom: 20,
   },
   formLabel: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    color: '#3b2070',
     marginBottom: 8,
   },
   emojiInput: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
+    borderTopColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
     padding: 12,
     fontSize: 32,
     textAlign: 'center',
     width: 80,
+    backgroundColor: '#fff',
+    color: '#1a0a3e',
   },
   input: {
+    fontFamily: 'Nunito-Regular',
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
+    borderTopColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
     padding: 12,
     fontSize: 16,
+    backgroundColor: '#fff',
+    color: '#1a0a3e',
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    elevation: 2,
   },
   formHint: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 12,
-    color: '#999',
+    color: '#9090b0',
     marginTop: 4,
   },
   timeOfDayButtons: {
@@ -278,18 +303,20 @@ const styles = StyleSheet.create({
   timeOfDayButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#f3f4f6',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
   },
   timeOfDayButtonText: {
+    fontFamily: 'Nunito-Medium',
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    color: '#5a5075',
   },
   timeOfDayButtonTextActive: {
+    fontFamily: 'Nunito-SemiBold',
     color: '#fff',
-    fontWeight: '600',
   },
   repeatButtons: {
     flexDirection: 'row',
@@ -299,27 +326,28 @@ const styles = StyleSheet.create({
   repeatButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#f3f4f6',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
   },
   repeatButtonActive: {
-    backgroundColor: '#f3e8ff',
+    backgroundColor: '#ede9fe',
     borderColor: '#8b5cf6',
   },
   repeatButtonText: {
+    fontFamily: 'Nunito-Medium',
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    color: '#5a5075',
   },
   repeatButtonTextActive: {
-    color: '#8b5cf6',
-    fontWeight: '600',
+    fontFamily: 'Nunito-SemiBold',
+    color: '#7c3aed',
   },
   repeatHint: {
+    fontFamily: 'Nunito-Regular',
     fontSize: 12,
-    color: '#8b5cf6',
+    color: '#7c3aed',
     marginTop: 8,
     fontStyle: 'italic',
   },
@@ -337,22 +365,32 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#fee2e2',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
   deleteButtonText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 16,
-    fontWeight: '600',
-    color: '#ef4444',
+    color: '#dc2626',
   },
   saveButton: {
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#7c3aed',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+    borderTopColor: 'rgba(196, 181, 253, 0.4)',
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   saveButtonText: {
+    fontFamily: 'Nunito-SemiBold',
     fontSize: 16,
-    fontWeight: '600',
     color: '#fff',
   },
 });
