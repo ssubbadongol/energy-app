@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { getLifeTasks, toggleLifeTaskCompleted } from './lifeTaskStorage';
-import { clearPinnedTask, setPinnedTask } from './pinnedTaskStorage';
+import { getLifeTasks, toggleLifeTaskCompleted } from '../lifeTaskStorage';
+import { clearPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
 import { getSharedTasks, updateSharedTasks } from './taskStorage';
 
 const CHANNEL_ID = 'task-focus';

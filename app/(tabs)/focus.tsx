@@ -1,721 +1,252 @@
-﻿import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Eye, Play, Square } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import Svg, { Polyline } from 'react-native-svg';
+import { Button, Rule, Screen, Surface, Text, haptic } from '@/components/primitives';
+import { curve, gutter, palette, radius, space } from '@/theme/tokens';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+/**
+ * Focus session — direction sample.
+ *
+ * STATIC. No camera, no timer, no tracking; the numbers are fixed and the
+ * button only swaps between the two states.
+ *
+ * ── Layout note ──────────────────────────────────────────────────────────
+ *
+ * Every vertical dimension here is either content-sized or a flexible spacer.
+ * There are no fixed margins between the blocks, because a fixed rhythm that
+ * fits a 812pt viewport overflows a 667pt one, and this screen must not
+ * scroll — a focus session that you can accidentally swipe is not a focus
+ * session. The metric steps down on short screens instead.
+ */
 
-// Color overlays for focus screen
-const OVERLAY_COLORS = [
-  { name: 'No Overlay', color: 'transparent', opacity: 0 },
-  { name: 'Calm Blue', color: '#3b82f6', opacity: 0.85 },
-  { name: 'Forest Green', color: '#10b981', opacity: 0.85 },
-  { name: 'Warm Beige', color: '#d4b896', opacity: 0.85 },
-  { name: 'Soft Purple', color: '#8b5cf6', opacity: 0.85 },
-  { name: 'Deep Gray', color: '#4b5563', opacity: 0.85 },
-  { name: 'Ocean Teal', color: '#14b8a6', opacity: 0.85 },
+/** Fixed sample. Replaced by the Presage stream when session logic lands. */
+const SAMPLE = [
+  52, 58, 61, 57, 64, 71, 76, 74, 79, 83, 81, 86, 88, 84, 79, 72, 63, 55, 48,
+  44, 41, 47, 56, 64, 70, 75, 78, 82, 85, 87, 86, 89, 91, 88, 85, 87,
 ];
 
+/**
+ * The metric is the one place a token gets a responsive override. 128pt is
+ * the design size; below it the number would either clip or force the graph
+ * off the bottom, and a clipped number is worse than a smaller one.
+ */
+function metricSize(viewportHeight: number) {
+  if (viewportHeight >= 780) return { fontSize: 128, lineHeight: 128 };
+  if (viewportHeight >= 700) return { fontSize: 108, lineHeight: 108 };
+  return { fontSize: 88, lineHeight: 88 };
+}
+
 export default function FocusScreen() {
-  // Permissions
-  const [permission, requestPermission] = useCameraPermissions();
-  
-  // Session state
-  const [isSessionActive, setIsSessionActive] = useState(false);
-  const [selectedOverlay, setSelectedOverlay] = useState(OVERLAY_COLORS[0]); // Start with no overlay
-  const [sessionDuration, setSessionDuration] = useState(0);
-  
-  // Focus tracking data
-  const [focusData, setFocusData] = useState<number[]>([50]); // Start at 50%
-  const [currentFocus, setCurrentFocus] = useState(50);
-  
-  // Temporary focus simulation state
-  const [userState, setUserState] = useState<'focused' | 'distracted' | 'returning'>('focused');
-  const [stateTimer, setStateTimer] = useState(0);
-  
-  // Refs
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const trackingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  
-  // Format time as MM:SS
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-  
-  // Start focus session
-  const startSession = async () => {
-    // Check camera permission
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) {
-        Alert.alert('Camera Permission Required', 'Camera access is needed to track your focus. Please enable it in settings.');
-        return;
-      }
-    }
-    
-    setIsSessionActive(true);
-    setSessionDuration(0);
-    setFocusData([50]);
-    setCurrentFocus(50);
-    setUserState('focused'); // Reset to focused state
-    setStateTimer(0); // Reset state timer
-    
-    // Start timer
-    timerRef.current = setInterval(() => {
-      setSessionDuration(prev => prev + 1);
-    }, 1000);
-    
-    // Start focus tracking (realistic simulation - replace with Presage)
-    trackingRef.current = setInterval(() => {
-      // TODO: Replace with actual Presage tracking
-      // Camera is ALWAYS tracking, regardless of overlay
-      // const presageFocus = await PresageFocusTracker.getCurrentFocus();
-      
-      // TEMPORARY: Realistic focus simulation
-      setStateTimer(prev => {
-        const newTimer = prev + 1;
-        
-        // State transitions based on realistic timings
-        let newState = userState;
-        
-        if (userState === 'focused' && newTimer > 20 + Math.random() * 30) {
-          // After 20-50 seconds of focus, user might get distracted
-          if (Math.random() < 0.3) { // 30% chance
-            newState = 'distracted';
-            setUserState(newState);
-            return 0; // Reset timer
-          }
-        } else if (userState === 'distracted' && newTimer > 5 + Math.random() * 10) {
-          // After 5-15 seconds of distraction, user starts returning
-          newState = 'returning';
-          setUserState(newState);
-          return 0;
-        } else if (userState === 'returning' && newTimer > 3 + Math.random() * 5) {
-          // After 3-8 seconds of returning, user is focused again
-          newState = 'focused';
-          setUserState(newState);
-          return 0;
-        }
-        
-        return newTimer;
-      });
-      
-      // Calculate new focus based on state
-      setCurrentFocus(prevFocus => {
-        let targetFocus = prevFocus;
-        let change = 0;
-        
-        switch (userState) {
-          case 'focused':
-            // Gradually increase focus to 75-95%
-            targetFocus = 75 + Math.random() * 20;
-            change = (targetFocus - prevFocus) * 0.15; // Gradual increase
-            break;
-          case 'distracted':
-            // Drop to 20-40%
-            targetFocus = 20 + Math.random() * 20;
-            change = (targetFocus - prevFocus) * 0.25; // Faster decrease
-            break;
-          case 'returning':
-            // Recovering to 50-70%
-            targetFocus = 50 + Math.random() * 20;
-            change = (targetFocus - prevFocus) * 0.2;
-            break;
-        }
-        
-        // Add some natural variation (breathing, micro-movements)
-        const microVariation = (Math.random() - 0.5) * 3;
-        
-        const newFocus = Math.max(10, Math.min(100, 
-          prevFocus + change + microVariation
-        ));
-        
-        const roundedFocus = Math.round(newFocus);
-        
-        // Update focus data
-        setFocusData(prev => {
-          const updated = [...prev, roundedFocus];
-          // Keep last 60 data points (1 per second for 1 minute view)
-          return updated.slice(-60);
-        });
-        
-        return roundedFocus;
-      });
-    }, 1000);
-  };
-  
-  // Stop focus session
-  const stopSession = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (trackingRef.current) clearInterval(trackingRef.current);
-    
-    setIsSessionActive(false);
-    
-    // Calculate average focus
-    const avgFocus = focusData.reduce((a, b) => a + b, 0) / focusData.length;
-    
-    Alert.alert(
-      'Session Complete! 🎉',
-      `Duration: ${formatTime(sessionDuration)}\nAverage Focus: ${avgFocus.toFixed(1)}%`,
-      [{ text: 'OK' }]
-    );
-  };
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (trackingRef.current) clearInterval(trackingRef.current);
-    };
-  }, []);
-  
-  // Active session view
-  const renderActiveSession = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-      {/* Camera with Optional Overlay */}
-      <View style={styles.cameraContainer}>
-        <CameraView style={styles.camera} facing="front">
-          {/* Color Overlay */}
-          {selectedOverlay.opacity > 0 && (
-            <View 
-              style={[
-                styles.colorOverlay, 
-                { 
-                  backgroundColor: selectedOverlay.color,
-                  opacity: selectedOverlay.opacity,
-                }
-              ]} 
-            />
-          )}
-          
-          {/* Focus Indicator */}
-          <View style={styles.cameraOverlay}>
-            <View style={styles.focusIndicator}>
-              <Text style={styles.focusPercentage}>{currentFocus}%</Text>
-              <Text style={styles.focusLabel}>Focus</Text>
-            </View>
-            
-            {/* Temporary: State Indicator (remove when using real Presage) */}
-            <View style={styles.stateIndicator}>
-              <Text style={styles.stateText}>
-                {userState === 'focused' && '🎯 Focused'}
-                {userState === 'distracted' && '👀 Distracted'}
-                {userState === 'returning' && '↩️ Returning'}
-              </Text>
-              <Text style={styles.stateSubtext}>(Simulated)</Text>
-            </View>
-          </View>
-        </CameraView>
-      </View>
-      
-      {/* Timer */}
-      <View style={styles.timerContainer}>
-        <Text style={styles.timerText}>{formatTime(sessionDuration)}</Text>
-      </View>
-      
-      {/* Overlay Toggle */}
-      <View style={styles.overlayToggleContainer}>
-        <Text style={styles.sectionTitle}>Color Overlay</Text>
-        <Text style={styles.sectionSubtitle}>
-          Camera is always tracking your focus
-        </Text>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.overlayOptions}
-        >
-          {OVERLAY_COLORS.map((overlay) => (
-            <TouchableOpacity
-              key={overlay.name}
-              style={[
-                styles.overlayOption,
-                selectedOverlay.name === overlay.name && styles.overlayOptionSelected,
-              ]}
-              onPress={() => setSelectedOverlay(overlay)}
-            >
-              <View 
-                style={[
-                  styles.overlayColorPreview,
-                  { 
-                    backgroundColor: overlay.color === 'transparent' ? '#f3f4f6' : overlay.color,
-                  }
-                ]}
-              >
-                {overlay.color === 'transparent' && (
-                  <Eye size={20} color="#8b5cf6" />
-                )}
-              </View>
-              <Text style={styles.overlayName}>{overlay.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-      
-      {/* Focus Graph */}
-      <View style={styles.graphContainer}>
-        <Text style={styles.sectionTitle}>Focus Over Time</Text>
-        <LineChart
-          data={{
-            labels: [],
-            datasets: [{
-              data: focusData.length > 1 ? focusData : [50, 50],
-            }],
-          }}
-          width={SCREEN_WIDTH - 40}
-          height={200}
-          chartConfig={{
-            backgroundColor: '#f8f4ff',
-            backgroundGradientFrom: '#f8f4ff',
-            backgroundGradientTo: '#f8f4ff',
-            decimalPlaces: 0,
-            color: (opacity = 1) => `rgba(139, 92, 246, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
-            style: {
-              borderRadius: 16,
-            },
-            propsForDots: {
-              r: '2',
-              strokeWidth: '2',
-              stroke: '#8b5cf6',
-            },
-          }}
-          bezier
-          style={styles.chart}
-          withInnerLines={true}
-          withOuterLines={true}
-          withVerticalLabels={false}
-          withHorizontalLabels={true}
-          segments={4}
-          yAxisSuffix="%"
-          yAxisInterval={1}
-          fromZero={true}
-        />
-        <Text style={styles.graphSubtitle}>Last {Math.min(focusData.length, 60)} seconds</Text>
-      </View>
-      
-      {/* Stop Button */}
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={styles.stopButton}
-          onPress={stopSession}
-        >
-          <Square size={24} color="#fff" fill="#fff" />
-          <Text style={styles.stopButtonText}>End Session</Text>
-        </TouchableOpacity>
-      </View>
-      
-      {/* Add some bottom padding */}
-      <View style={{ height: 40 }} />
-    </ScrollView>
+  const [active, setActive] = useState(true);
+
+  return active ? (
+    <ActiveSession onEnd={() => setActive(false)} />
+  ) : (
+    <Threshold onBegin={() => setActive(true)} />
   );
-  
-  // Idle state
-  const renderIdleState = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-      <View style={styles.idleContainer}>
-        <View style={styles.iconContainer}>
-          <View style={styles.iconCircle}>
-            <Eye size={60} color="#8b5cf6" />
-          </View>
-        </View>
-        
-        <Text style={styles.idleTitle}>Focus Mode</Text>
-        <Text style={styles.idleDescription}>
-          AI-powered attention tracking to help you stay focused
-        </Text>
-        
-        {/* How it works */}
-        <View style={styles.infoSection}>
-          <Text style={styles.infoSectionTitle}>How it works:</Text>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoBullet}>📹</Text>
-            <Text style={styles.infoText}>
-              Camera tracks your attention in real-time
-            </Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoBullet}>🎨</Text>
-            <Text style={styles.infoText}>
-              Optional color overlay to avoid seeing yourself
-            </Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoBullet}>📊</Text>
-            <Text style={styles.infoText}>
-              Live graph shows your focus over time
-            </Text>
-          </View>
-        </View>
-        
-        {/* Color preview */}
-        <View style={styles.previewSection}>
-          <Text style={styles.previewTitle}>Preview Color Overlays:</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.colorPreviewList}
-          >
-            {OVERLAY_COLORS.slice(1).map((overlay) => (
-              <View key={overlay.name} style={styles.colorPreviewItem}>
-                <View 
-                  style={[
-                    styles.colorPreviewBox,
-                    { backgroundColor: overlay.color }
-                  ]}
-                />
-                <Text style={styles.colorPreviewName}>{overlay.name}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-        
-        {/* Start Button */}
-        <TouchableOpacity
-          style={styles.startButton}
-          onPress={startSession}
-        >
-          <Play size={28} color="#fff" fill="#fff" />
-          <Text style={styles.startButtonText}>Start Focus Session</Text>
-        </TouchableOpacity>
-        
-        {/* Tip */}
-        <View style={styles.tipBox}>
-          <Text style={styles.tipText}>
-            💡 Position your camera at eye level for best tracking
-          </Text>
-        </View>
-      </View>
-    </ScrollView>
-  );
-  
+}
+
+/* ------------------------------------------------------------------ *
+ * Live session
+ * ------------------------------------------------------------------ */
+
+function ActiveSession({ onEnd }: { onEnd: () => void }) {
+  const { height } = useWindowDimensions();
+  const metric = metricSize(height);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Focus Mode</Text>
-        <Text style={styles.subtitle}>AI-powered focus tracking</Text>
+    <Screen label="Session 04" labelTrailing="24:18" testID="focus-active">
+      <View style={styles.activeBody}>
+        {/*
+          The emphasis surface: a deep ink block inset from the screen edges so
+          its 24pt rounding is actually visible. Everything inside it flips
+          palette through context — no component is told about it.
+        */}
+        <Surface name="emphasis">
+          <View style={[styles.block, curve]}>
+            <View style={styles.blockHead}>
+              <Text variant="label" tone="secondary">
+                Focus
+              </Text>
+              <Text variant="label" tone="secondary">
+                Steady
+              </Text>
+            </View>
+            <Rule />
+
+            {/* Baseline-aligned so % sits on the digits' baseline, not at cap height. */}
+            <View style={styles.metricRow}>
+              <Text variant="metric" style={metric} accessibilityLabel="Focus 87 percent">
+                87
+              </Text>
+              <Text variant="metricSm" tone="secondary" style={styles.percent}>
+                %
+              </Text>
+            </View>
+
+            <View style={styles.spacer} />
+
+            <FocusGraph data={SAMPLE} />
+
+            <View style={styles.graphMeta}>
+              <Text variant="labelSm" tone="secondary">
+                Last 3 min
+              </Text>
+              <Text variant="labelSm" tone="secondary">
+                Avg 72%
+              </Text>
+            </View>
+          </View>
+        </Surface>
+
+        <Button
+          label="End session"
+          variant="outline"
+          size="md"
+          pill
+          fullWidth
+          style={styles.endButton}
+          onPress={() => {
+            haptic('heavy');
+            onEnd();
+          }}
+        />
       </View>
-      
-      {isSessionActive ? renderActiveSession() : renderIdleState()}
-    </SafeAreaView>
+    </Screen>
+  );
+}
+
+/**
+ * The graph.
+ *
+ * A hairline polyline — no fill, no gradient, no dots, no axes, no grid, and
+ * bounded by straight rules rather than a rounded plot box. Rounding it would
+ * make it an object floating inside the block; left square and full-bleed to
+ * the block's padding it stays part of the page structure, which is the
+ * distinction the whole shape system rests on.
+ *
+ * Deliberately unsmoothed. A bezier would imply the attention signal is
+ * continuous and gentle; it is neither.
+ */
+function FocusGraph({ data }: { data: number[] }) {
+  const { width } = useWindowDimensions();
+  const plotWidth = width - gutter * 2 - space[4] * 2 - space[5] * 2;
+  const plotHeight = 104;
+
+  const points = data
+    .map((v, i) => {
+      const x = (i / (data.length - 1)) * plotWidth;
+      const y = plotHeight - (v / 100) * plotHeight;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <View accessibilityLabel="Focus over the last 3 minutes, averaging 72 percent">
+      <Rule weight="faint" />
+      <Svg width={plotWidth} height={plotHeight}>
+        <Polyline
+          points={points}
+          fill="none"
+          stroke={palette.emphasis.fg}
+          strokeWidth={1}
+          strokeLinejoin="miter"
+        />
+      </Svg>
+      <Rule weight="faint" />
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Threshold
+ * ------------------------------------------------------------------ */
+
+function Threshold({ onBegin }: { onBegin: () => void }) {
+  return (
+    <Screen label="Focus" testID="focus-threshold">
+      <View style={styles.thresholdBody}>
+        {/* Collage image slot — see DESIGN.md. Not yet sourced. */}
+
+        <Text variant="display">Ready when you are.</Text>
+
+        <Text variant="body" tone="secondary" style={styles.thresholdCopy}>
+          Your camera tracks how steady your attention is. Nothing is recorded
+          and nothing leaves your phone.
+        </Text>
+
+        <View style={styles.thresholdMeta}>
+          <Rule />
+          <View style={styles.thresholdMetaRow}>
+            <Text variant="labelSm" tone="secondary">
+              Last session
+            </Text>
+            <Text variant="labelSm" tone="secondary">
+              38 min · Avg 74%
+            </Text>
+          </View>
+        </View>
+
+        <Button
+          label="Begin session"
+          variant="solid"
+          size="lg"
+          pill
+          fullWidth
+          style={styles.beginButton}
+          onPress={() => {
+            haptic('heavy');
+            onBegin();
+          }}
+        />
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  /* Live session */
+  activeBody: { flex: 1, paddingBottom: space[5] },
+  block: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: palette.emphasis.bg,
+    borderRadius: radius.lg,
+    paddingHorizontal: space[5],
+    paddingVertical: space[5],
   },
-  header: {
-    backgroundColor: 'rgba(139, 92, 246, 0.85)',
-    padding: 24,
-    paddingTop: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  
-  // ScrollView
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  
-  // Idle State
-  idleContainer: {
-    padding: 24,
-  },
-  iconContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 24,
-  },
-  iconCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f3e8ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  idleTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  idleDescription: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 24,
-  },
-  
-  // Info Section
-  infoSection: {
-    backgroundColor: '#f8f4ff',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 24,
-  },
-  infoSectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 16,
-  },
-  infoItem: {
+  blockHead: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: space[2],
   },
-  infoBullet: {
-    fontSize: 20,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#666',
-    lineHeight: 22,
-  },
-  
-  // Preview Section
-  previewSection: {
-    marginBottom: 32,
-  },
-  previewTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 12,
-  },
-  colorPreviewList: {
-    gap: 12,
-    paddingVertical: 4,
-  },
-  colorPreviewItem: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  colorPreviewBox: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-  },
-  colorPreviewName: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
-  
-  // Start Button
-  startButton: {
+  metricRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#8b5cf6',
-    padding: 20,
-    borderRadius: 16,
-    gap: 12,
-    marginBottom: 16,
+    alignItems: 'baseline',
+    marginTop: space[5],
   },
-  startButtonText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  tipBox: {
-    backgroundColor: '#fef3c7',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#fde68a',
-  },
-  tipText: {
-    fontSize: 14,
-    color: '#92400e',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  
-  // Active Session
-  cameraContainer: {
-    height: 400,
-    backgroundColor: '#000',
-    position: 'relative',
-  },
-  camera: {
-    flex: 1,
-  },
-  colorOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  cameraOverlay: {
-    flex: 1,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    padding: 20,
-  },
-  focusIndicator: {
-    backgroundColor: 'rgba(139, 92, 246, 0.95)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  focusPercentage: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  focusLabel: {
-    fontSize: 12,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  stateIndicator: {
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  stateText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  stateSubtext: {
-    fontSize: 10,
-    color: '#fff',
-    opacity: 0.7,
-    marginTop: 2,
-  },
-  
-  // Timer
-  timerContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#f8f4ff',
-  },
-  timerText: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#8b5cf6',
-  },
-  
-  // Overlay Toggle
-  overlayToggleContainer: {
-    padding: 20,
-    backgroundColor: '#fff',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 12,
-  },
-  overlayOptions: {
-    gap: 12,
-    paddingVertical: 4,
-  },
-  overlayOption: {
-    alignItems: 'center',
-    gap: 6,
-    padding: 8,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  overlayOptionSelected: {
-    borderColor: '#8b5cf6',
-    backgroundColor: '#f8f4ff',
-  },
-  overlayColorPreview: {
-    width: 50,
-    height: 50,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-  },
-  overlayName: {
-    fontSize: 11,
-    color: '#666',
-    textAlign: 'center',
-    maxWidth: 70,
-  },
-  
-  // Graph
-  graphContainer: {
-    padding: 20,
-  },
-  chart: {
-    marginVertical: 8,
-    borderRadius: 16,
-  },
-  graphSubtitle: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  
-  // Controls
-  controlsContainer: {
-    padding: 20,
-  },
-  stopButton: {
+  percent: { marginLeft: space[2] },
+  // Absorbs whatever height is left over, so nothing else has to be fixed.
+  spacer: { flex: 1, minHeight: space[5] },
+  graphMeta: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#ef4444',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginTop: space[3],
   },
-  stopButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
+  endButton: { marginTop: space[5] },
+
+  /* Threshold */
+  thresholdBody: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: space[10],
   },
+  thresholdCopy: { marginTop: space[5], maxWidth: 300 },
+  thresholdMeta: { marginTop: space[10] },
+  thresholdMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: space[3],
+  },
+  beginButton: { marginTop: space[8] },
 });

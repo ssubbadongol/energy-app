@@ -17,14 +17,12 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-<<<<<<< HEAD
+import { colors, radius, shadows, typography } from '@/theme';
 import { pinTaskToNotification } from './notificationService';
 import { cancelTaskNotifications } from './taskNotificationService';
 import { getSharedTasks, Task, updateSharedTasks } from './taskStorage';
 
 type EnergyLevel = 'high' | 'medium' | 'low';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatCurrentTime(date: Date): string {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -34,15 +32,8 @@ function formatCurrentTime(date: Date): string {
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
   const mm = minutes < 10 ? `0${minutes}` : `${minutes}`;
-  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()} • ${hours}:${mm} ${ampm}`;
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()} · ${hours}:${mm} ${ampm}`;
 }
-=======
-import { getPinnedTask, hasPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
-import { getSharedTasks, initializeTasks, Task, updateSharedTasks } from '../taskStorage';
-import PinnedTaskBanner from './PinnedTaskBanner';
-
-type EnergyLevel = 'high' | 'medium' | 'low';
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 function formatDueTime(dueTime: string): string {
   const [h, m] = dueTime.split(':').map(Number);
@@ -58,18 +49,16 @@ function getEnergyIcon(level: EnergyLevel) {
 }
 
 function getEnergyColor(level: EnergyLevel): string {
-  if (level === 'high') return '#F59E0B';
-  if (level === 'medium') return '#8b5cf6';
+  if (level === 'high') return colors.warning;
+  if (level === 'medium') return colors.accent;
   return '#38BDF8';
 }
 
-function getEnergyCardColor(level: EnergyLevel): { border: string; bg: string } {
-  if (level === 'high') return { border: '#F59E0B', bg: '#fffaf0' };
-  if (level === 'medium') return { border: '#8b5cf6', bg: '#f7f3ff' };
-  return { border: '#38BDF8', bg: '#f0f8ff' };
+function getEnergyCardBorder(level: EnergyLevel): string {
+  if (level === 'high') return colors.warning;
+  if (level === 'medium') return colors.accent;
+  return '#38BDF8';
 }
-
-// ── Swipeable Task Card ───────────────────────────────────────────────────────
 
 function TaskCard({
   task,
@@ -82,7 +71,7 @@ function TaskCard({
   onComplete: () => void;
   onPin: () => void;
 }) {
-  const colors = getEnergyCardColor(task.energy as EnergyLevel);
+  const borderColor = getEnergyCardBorder(task.energy as EnergyLevel);
   const EnergyIcon = getEnergyIcon(task.energy as EnergyLevel);
 
   const translateX = useSharedValue(0);
@@ -129,46 +118,45 @@ function TaskCard({
   const composed = Gesture.Race(longPress, pan);
 
   return (
-    <View style={styles.swipeWrapper}>
-      <Animated.View style={[styles.swipeBg, revealStyle]}>
+    <View style={s.swipeWrapper}>
+      <Animated.View style={[s.swipeBg, revealStyle]}>
         <Check size={18} color="#fff" />
       </Animated.View>
 
       <GestureDetector gesture={composed}>
         <Animated.View
           style={[
-            styles.taskCard,
-            { borderLeftColor: colors.border, backgroundColor: '#FFFFFF' },
-            !suggested && styles.taskCardFaded,
-            { marginBottom: 0 },
+            s.taskCard,
+            { borderLeftColor: borderColor },
+            !suggested && s.taskCardFaded,
             cardStyle,
           ]}
         >
-          <View style={styles.taskHeader}>
-            <Text style={styles.taskName} numberOfLines={2}>{task.name}</Text>
+          <View style={s.taskHeader}>
+            <Text style={s.taskName} numberOfLines={2}>{task.name}</Text>
             {suggested && (
-              <View style={styles.recommendedBadge}>
-                <Text style={styles.recommendedText}>Now</Text>
+              <View style={s.nowBadge}>
+                <Text style={s.nowBadgeText}>Now</Text>
               </View>
             )}
           </View>
 
           {task.dueTime ? (
-            <Text style={styles.dueTime}>Due {formatDueTime(task.dueTime)}</Text>
+            <Text style={s.dueTime}>Due {formatDueTime(task.dueTime)}</Text>
           ) : null}
 
-          <View style={styles.taskMeta}>
-            <View style={styles.metaItem}>
-              <Clock size={13} color="#9090b0" />
-              <Text style={styles.metaText}>{task.time}m</Text>
+          <View style={s.taskMeta}>
+            <View style={s.metaItem}>
+              <Clock size={12} color={colors.textMuted} strokeWidth={1.5} />
+              <Text style={s.metaText}>{task.time}m</Text>
             </View>
-            <View style={styles.metaItem}>
-              <EnergyIcon size={13} color={getEnergyColor(task.energy as EnergyLevel)} />
-              <Text style={styles.metaText}>{task.energy}</Text>
+            <View style={s.metaItem}>
+              <EnergyIcon size={12} color={getEnergyColor(task.energy as EnergyLevel)} strokeWidth={1.5} />
+              <Text style={s.metaText}>{task.energy}</Text>
             </View>
             {task.type ? (
-              <View style={styles.typeBadge}>
-                <Text style={styles.typeText}>{task.type}</Text>
+              <View style={s.typeBadge}>
+                <Text style={s.typeText}>{task.type}</Text>
               </View>
             ) : null}
           </View>
@@ -178,34 +166,28 @@ function TaskCard({
   );
 }
 
-// ── Completed Task Card ───────────────────────────────────────────────────────
-
 function CompletedTaskCard({ task, onToggle }: { task: Task; onToggle: () => void }) {
-  const colors = getEnergyCardColor(task.energy as EnergyLevel);
+  const borderColor = getEnergyCardBorder(task.energy as EnergyLevel);
 
   return (
     <TouchableOpacity
       onPress={onToggle}
-      style={[styles.taskCard, { borderLeftColor: colors.border, backgroundColor: '#FFFFFF' }, styles.taskCardCompleted]}
+      style={[s.taskCard, { borderLeftColor: borderColor }, s.taskCardCompleted]}
       activeOpacity={0.7}
     >
-      <Text style={[styles.taskName, styles.taskNameCompleted]} numberOfLines={2}>
-        {task.name}
-      </Text>
+      <Text style={[s.taskName, s.taskNameCompleted]} numberOfLines={2}>{task.name}</Text>
       {task.dueTime ? (
-        <Text style={[styles.dueTime, { opacity: 0.6 }]}>Due {formatDueTime(task.dueTime)}</Text>
+        <Text style={[s.dueTime, { opacity: 0.5 }]}>Due {formatDueTime(task.dueTime)}</Text>
       ) : null}
-      <View style={styles.taskMeta}>
-        <View style={styles.metaItem}>
-          <Clock size={13} color="#9090b0" />
-          <Text style={styles.metaText}>{task.time}m</Text>
+      <View style={s.taskMeta}>
+        <View style={s.metaItem}>
+          <Clock size={12} color={colors.textMuted} strokeWidth={1.5} />
+          <Text style={s.metaText}>{task.time}m</Text>
         </View>
       </View>
     </TouchableOpacity>
   );
 }
-
-// ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const [currentEnergy, setCurrentEnergy] = useState<EnergyLevel>('medium');
@@ -213,54 +195,15 @@ export default function HomeScreen() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-<<<<<<< HEAD
     setTasks(getSharedTasks());
     const timer = setInterval(() => setCurrentTime(new Date()), 60_000);
-=======
-    // Initialize tasks from AsyncStorage on first load
-    initializeTasks().then(() => {
-      setTasks(getSharedTasks());
-    });
-    
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
     return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-<<<<<<< HEAD
     const interval = setInterval(() => setTasks(getSharedTasks()), 500);
     return () => clearInterval(interval);
   }, []);
-=======
-    const interval = setInterval(() => {
-      const latestTasks = getSharedTasks();
-      setTasks(latestTasks);
-    }, 500);
-    return () => clearInterval(interval);
-  }, []);
-
-  const formatTime = (date: Date) => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
-    const dayName = days[date.getDay()];
-    const monthName = months[date.getMonth()];
-    const day = date.getDate();
-    
-    let hours = date.getHours();
-    const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    const minutesStr = minutes < 10 ? '0' + minutes : minutes;
-    
-    return `${dayName}, ${monthName} ${day} • ${hours}:${minutesStr} ${ampm}`;
-  };
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
   const isToday = (dateString?: string) => {
     if (!dateString) return true;
@@ -274,7 +217,6 @@ export default function HomeScreen() {
     return false;
   };
 
-<<<<<<< HEAD
   const toggleTask = (id: number) => {
     const task = tasks.find(t => t.id === id);
     if (task && !task.completed && task.notificationIds?.length) {
@@ -286,15 +228,9 @@ export default function HomeScreen() {
   };
 
   const getEnergyMessage = () => {
-    if (currentEnergy === 'high') return "You're at peak energy. Perfect time for challenging tasks!";
-    if (currentEnergy === 'medium') return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
-    return "Low energy detected. Focus on simple admin tasks or take a break.";
-=======
-  const toggleTask = async (id: number) => {
-    const updatedTasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
-    setTasks(updatedTasks);
-    await updateSharedTasks(updatedTasks);
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
+    if (currentEnergy === 'high') return "Peak energy. Tackle your hardest tasks first.";
+    if (currentEnergy === 'medium') return "Decent energy. Medium tasks or lighter versions of big ones.";
+    return "Low energy. Simple tasks or a well-deserved break.";
   };
 
   const todayTasks = tasks.filter(t => isToday(t.dueDate));
@@ -312,63 +248,30 @@ export default function HomeScreen() {
     Alert.alert('Pinned', `"${task.name}" pinned to your notifications.`, [{ text: 'OK' }]);
   };
 
-<<<<<<< HEAD
   const showTips = () => {
     Alert.alert(
       'Tips',
-      '• Swipe right on a task to mark it complete\n• Long press a task to pin it to the top',
+      '· Swipe right on a task to complete it\n· Long press to pin to notifications',
       [{ text: 'Got it' }]
     );
-=======
-  const getEnergyColor = (level: EnergyLevel) => {
-    switch(level) {
-      case 'high': return '#F59E0B';
-      case 'medium': return '#8b5cf6';
-      case 'low': return '#38BDF8';
-    }
   };
-
-  const getEnergyCardColor = (level: EnergyLevel) => {
-    switch(level) {
-      case 'high': return { border: '#F59E0B', bg: '#FEF3C7' };
-      case 'medium': return { border: '#8b5cf6', bg: '#F3E8FF' };
-      case 'low': return { border: '#38BDF8', bg: '#E0F2FE' };
-    }
-  };
-
-  const getEnergyMessage = () => {
-    switch(currentEnergy) {
-      case 'high': return "You're at peak energy. Perfect time for challenging tasks!";
-      case 'medium': return "Decent energy level. Tackle medium-priority tasks or easier high-priority ones.";
-      case 'low': return "Low energy detected. Focus on simple admin tasks or take a break.";
-    }
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
-  };
-
-  // ── Energy selector ───────────────────────────────────────────────────────
 
   const EnergySelector = () => (
-    <View style={styles.energyCard}>
-      <Text style={styles.energyTitle}>{"How's your energy right now?"}</Text>
-      <View style={styles.energyButtons}>
+    <View style={s.energyCard}>
+      <Text style={s.energyTitle}>{"How's your energy?"}</Text>
+      <View style={s.energyButtons}>
         {(['high', 'medium', 'low'] as EnergyLevel[]).map(level => {
           const Icon = getEnergyIcon(level);
+          const active = currentEnergy === level;
           return (
             <TouchableOpacity
               key={level}
               onPress={() => setCurrentEnergy(level)}
-              style={[
-                styles.energyButton,
-                currentEnergy === level && { backgroundColor: getEnergyColor(level) },
-              ]}
+              activeOpacity={0.8}
+              style={[s.energyButton, active && { backgroundColor: getEnergyColor(level) + '20', borderColor: getEnergyColor(level) }]}
             >
-              <Icon size={20} color={currentEnergy === level ? '#fff' : '#666'} />
-              <Text
-                style={[
-                  styles.energyButtonText,
-                  currentEnergy === level && styles.energyButtonTextActive,
-                ]}
-              >
+              <Icon size={18} color={active ? getEnergyColor(level) : colors.textMuted} strokeWidth={1.5} />
+              <Text style={[s.energyButtonText, active && { color: getEnergyColor(level) }]}>
                 {level.charAt(0).toUpperCase() + level.slice(1)}
               </Text>
             </TouchableOpacity>
@@ -378,53 +281,47 @@ export default function HomeScreen() {
     </View>
   );
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-<<<<<<< HEAD
+    <SafeAreaView style={s.container} edges={['top']}>
+      {/* Ambient glow */}
+      <View pointerEvents="none" style={s.ambientGlow} />
+
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        style={s.scrollView}
+        contentContainerStyle={s.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
         {/* Header */}
-=======
-      <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
-        <View style={styles.headerContainer}>
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{"Today's Focus"}</Text>
-              <Text style={styles.subtitle}>{formatCurrentTime(currentTime)}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.infoBtn}
-              onPress={showTips}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.75}
-            >
-              <Info size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+        <View style={s.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.title}>{"Today's Focus"}</Text>
+            <Text style={s.subtitle}>{formatCurrentTime(currentTime)}</Text>
           </View>
+          <TouchableOpacity
+            style={s.infoBtn}
+            onPress={showTips}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
+          >
+            <Info size={18} color={colors.textMuted} strokeWidth={1.5} />
+          </TouchableOpacity>
         </View>
 
         <EnergySelector />
 
-        {/* Energy insight banner */}
-        <View style={styles.insightBanner}>
-          <Zap size={18} color="#6B7280" />
-          <Text style={styles.insightText}>{getEnergyMessage()}</Text>
+        {/* Insight */}
+        <View style={s.insightBanner}>
+          <Zap size={14} color={colors.accent} strokeWidth={1.5} />
+          <Text style={s.insightText}>{getEnergyMessage()}</Text>
         </View>
 
         {/* Suggested tasks */}
         {suggestedTasks.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Matched to Your Energy</Text>
-              <View style={styles.taskCountBadge}>
-                <Text style={styles.taskCountText}>{suggestedTasks.length}</Text>
+          <View style={s.section}>
+            <View style={s.sectionHeader}>
+              <Text style={s.sectionTitle}>Matched to your energy</Text>
+              <View style={s.countBadge}>
+                <Text style={s.countText}>{suggestedTasks.length}</Text>
               </View>
             </View>
             {suggestedTasks.map(task => (
@@ -441,9 +338,9 @@ export default function HomeScreen() {
 
         {/* Other tasks */}
         {otherTasks.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.laterTitle}>
-              Save for later ({otherTasks.length}) · Not matched to your energy
+          <View style={s.section}>
+            <Text style={s.laterTitle}>
+              Save for later · {otherTasks.length} not matched
             </Text>
             {otherTasks.map(task => (
               <TaskCard
@@ -457,10 +354,10 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Completed tasks */}
+        {/* Completed */}
         {completedTasks.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.completedTitle}>Completed Today 🎉</Text>
+          <View style={s.section}>
+            <Text style={s.completedTitle}>Done today · {completedTasks.length}</Text>
             {completedTasks.map(task => (
               <CompletedTaskCard
                 key={task.id}
@@ -472,142 +369,125 @@ export default function HomeScreen() {
         )}
 
         {suggestedTasks.length === 0 && otherTasks.length === 0 && completedTasks.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No tasks for today 🎉</Text>
-            <Text style={styles.emptySubtext}>Add a task to get started</Text>
+          <View style={s.emptyState}>
+            <Text style={s.emptyIcon}>✦</Text>
+            <Text style={s.emptyText}>All clear</Text>
+            <Text style={s.emptySubtext}>No tasks scheduled for today</Text>
           </View>
         )}
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.bgBase,
   },
-  scrollView: {
-    flex: 1,
+  ambientGlow: {
+    position: 'absolute',
+    top: -80,
+    alignSelf: 'center',
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    backgroundColor: colors.accentDim,
+    opacity: 0.7,
   },
-  scrollContent: {
-    padding: 20,
-  },
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 20 },
 
-  // ── Header ──────────────────────────────────────────────────────────────────
-  headerContainer: {
-    backgroundColor: '#0F172A',
-    marginHorizontal: -20,
-    marginTop: -20,
-    padding: 24,
-    paddingTop: 20,
-    marginBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  headerRow: {
+  // Header
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 24,
+    paddingTop: 8,
   },
   title: {
-    fontFamily: 'Nunito-Bold',
+    fontFamily: typography.displayFont,
     fontSize: 28,
-    color: '#FFFFFF',
-    marginBottom: 4,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom: 3,
   },
   subtitle: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.65)',
+    fontFamily: typography.bodyFont,
+    fontSize: 13,
+    color: colors.textMuted,
   },
   infoBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgSubtle,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    marginLeft: 12,
   },
 
-  // ── Energy Selector ──────────────────────────────────────────────────────────
+  // Energy card
   energyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: colors.bgSurface,
+    borderRadius: radius.lg,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: colors.border,
   },
   energyTitle: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 15,
-    color: '#111827',
+    fontFamily: typography.uiFont,
+    fontSize: 13,
+    color: colors.textSecondary,
     marginBottom: 12,
+    letterSpacing: 0.3,
   },
   energyButtons: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   energyButton: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
   },
   energyButtonText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 13,
-    color: '#6B7280',
-  },
-  energyButtonTextActive: {
-    color: '#fff',
+    fontFamily: typography.uiFont,
+    fontSize: 12,
+    color: colors.textMuted,
   },
 
-  // ── Insight Banner ───────────────────────────────────────────────────────────
+  // Insight banner
   insightBanner: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
+    backgroundColor: colors.accentDim,
+    borderRadius: radius.md,
     padding: 12,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.accent + '30',
   },
   insightText: {
-    fontFamily: 'Nunito-Regular',
+    fontFamily: typography.bodyFont,
     fontSize: 13,
-    color: '#6B7280',
+    color: colors.textSecondary,
     flex: 1,
   },
 
-  // ── Section ──────────────────────────────────────────────────────────────────
-  section: {
-    marginBottom: 20,
-  },
+  // Sections
+  section: { marginBottom: 20 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -615,108 +495,102 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionTitle: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 17,
-    color: '#111827',
+    fontFamily: typography.headingFont,
+    fontSize: 14,
+    color: colors.textSecondary,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
-  taskCountBadge: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 9,
+  countBadge: {
+    backgroundColor: colors.bgElevated,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: radius.full,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
   },
-  taskCountText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 12,
-    color: '#111827',
+  countText: {
+    fontFamily: typography.uiFont,
+    fontSize: 11,
+    color: colors.textMuted,
   },
   laterTitle: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 13,
-    color: '#6B7280',
+    fontFamily: typography.bodyFont,
+    fontSize: 12,
+    color: colors.textMuted,
     marginBottom: 10,
+    letterSpacing: 0.3,
   },
   completedTitle: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 15,
-    color: '#6B7280',
+    fontFamily: typography.bodyFont,
+    fontSize: 12,
+    color: colors.textMuted,
     marginBottom: 10,
+    letterSpacing: 0.3,
   },
 
-  // ── Swipe wrapper ────────────────────────────────────────────────────────────
+  // Swipe wrapper
   swipeWrapper: {
     marginBottom: 8,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
   },
   swipeBg: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#22c55e',
-    borderRadius: 16,
+    top: 0, bottom: 0, left: 0, right: 0,
+    backgroundColor: colors.success,
+    borderRadius: radius.lg,
     alignItems: 'flex-start',
     justifyContent: 'center',
     paddingLeft: 20,
   },
 
-  // ── Task Card ────────────────────────────────────────────────────────────────
+  // Task card
   taskCard: {
-    borderLeftWidth: 3,
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    borderLeftWidth: 2,
+    borderRadius: radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 0,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.bgSurface,
+    ...shadows.sm,
   },
-  taskCardFaded: {
-    opacity: 0.45,
-  },
-  taskCardCompleted: {
-    opacity: 0.55,
-  },
+  taskCardFaded: { opacity: 0.4 },
+  taskCardCompleted: { opacity: 0.4 },
   taskHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 3,
+    marginBottom: 4,
   },
   taskName: {
-    fontFamily: 'Nunito-SemiBold',
+    fontFamily: typography.uiFont,
     fontSize: 15,
-    color: '#111827',
+    color: colors.textPrimary,
     flex: 1,
   },
   taskNameCompleted: {
     textDecorationLine: 'line-through',
-    color: '#6B7280',
+    color: colors.textMuted,
   },
-  recommendedBadge: {
-    backgroundColor: '#0F172A',
+  nowBadge: {
+    backgroundColor: colors.accent,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: radius.full,
   },
-  recommendedText: {
-    fontFamily: 'Nunito-SemiBold',
+  nowBadgeText: {
+    fontFamily: typography.uiFont,
     fontSize: 10,
     color: '#FFFFFF',
   },
   dueTime: {
-    fontFamily: 'Nunito-Regular',
+    fontFamily: typography.bodyFont,
     fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 5,
+    color: colors.textMuted,
+    marginBottom: 6,
   },
   taskMeta: {
     flexDirection: 'row',
@@ -727,41 +601,46 @@ const styles = StyleSheet.create({
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
   },
   metaText: {
-    fontFamily: 'Nunito-Regular',
+    fontFamily: typography.bodyFont,
     fontSize: 12,
-    color: '#6B7280',
+    color: colors.textMuted,
   },
   typeBadge: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.bgElevated,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 5,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderSubtle,
   },
   typeText: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 10,
-    color: '#6B7280',
+    fontFamily: typography.bodyFont,
+    fontSize: 11,
+    color: colors.textMuted,
   },
 
-  // ── Empty State ──────────────────────────────────────────────────────────────
+  // Empty state
   emptyState: {
     alignItems: 'center',
-    marginTop: 60,
+    marginTop: 80,
+  },
+  emptyIcon: {
+    fontSize: 32,
+    color: colors.textMuted,
+    marginBottom: 12,
   },
   emptyText: {
-    fontFamily: 'Nunito-SemiBold',
+    fontFamily: typography.headingFont,
     fontSize: 20,
-    color: '#111827',
-    marginBottom: 8,
+    color: colors.textSecondary,
+    marginBottom: 6,
   },
   emptySubtext: {
-    fontFamily: 'Nunito-Regular',
+    fontFamily: typography.bodyFont,
     fontSize: 14,
-    color: '#6B7280',
+    color: colors.textMuted,
   },
 });

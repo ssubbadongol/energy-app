@@ -2,43 +2,30 @@ import { Check, Coffee as CoffeeIcon, Edit2, Heart, LucideIcon, Moon, Plus, Sett
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { colors, radius, shadows, typography } from '@/theme';
 import { getLifeTasks, initializeLifeTasks, LifeTask, TimeOfDay, toggleLifeTaskCompleted, toggleLifeTaskEnabled } from '../lifeTaskStorage';
-import { getPinnedTask, hasPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
 import LifeTaskModal from './LifeTaskModal';
-<<<<<<< HEAD
-import { getLifeTasks, LifeTask, TimeOfDay, toggleLifeTaskCompleted, toggleLifeTaskEnabled } from './lifeTaskStorage';
 import { pinTaskToNotification } from './notificationService';
-=======
-import PinnedTaskBanner from './PinnedTaskBanner';
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
 
 export default function LifeTasksScreen() {
   const [tasks, setTasks] = useState<LifeTask[]>([]);
   const [showSetup, setShowSetup] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const isModalOpenRef = useRef(false);
-
   const [editingTask, setEditingTask] = useState<LifeTask | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
 
   useEffect(() => {
-    // Initialize life tasks from AsyncStorage on first load
-    initializeLifeTasks().then(() => {
-      setTasks(getLifeTasks());
-    });
+    initializeLifeTasks().then(() => setTasks(getLifeTasks()));
   }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Don't update if modal is open
-      if (!isModalOpenRef.current) {
-        setTasks(getLifeTasks());
-      }
+      if (!isModalOpenRef.current) setTasks(getLifeTasks());
     }, 500);
     return () => clearInterval(interval);
   }, []);
 
-  // Update ref when modal state changes
   useEffect(() => {
     isModalOpenRef.current = showEditModal;
   }, [showEditModal]);
@@ -48,134 +35,99 @@ export default function LifeTasksScreen() {
 
   const groupedTasks: Record<TimeOfDay, LifeTask[]> = {
     morning: tasks.filter(t => t.timeOfDay === 'morning'),
-    midday: tasks.filter(t => t.timeOfDay === 'midday'),
+    midday:  tasks.filter(t => t.timeOfDay === 'midday'),
     evening: tasks.filter(t => t.timeOfDay === 'evening'),
   };
 
   const getTimeIcon = (timeOfDay: TimeOfDay): LucideIcon => {
-    switch(timeOfDay) {
+    switch (timeOfDay) {
       case 'morning': return Sun;
-      case 'midday': return CoffeeIcon;
+      case 'midday':  return CoffeeIcon;
       case 'evening': return Moon;
     }
   };
 
   const getTimeColor = (timeOfDay: TimeOfDay) => {
-    switch(timeOfDay) {
-      case 'morning': return '#F59E0B';
-      case 'midday': return '#8b5cf6';
+    switch (timeOfDay) {
+      case 'morning': return colors.warning;
+      case 'midday':  return colors.accent;
       case 'evening': return '#38BDF8';
     }
   };
 
   const getTimeLabel = (timeOfDay: TimeOfDay) => {
-    switch(timeOfDay) {
-      case 'morning': return 'Morning Basics';
-      case 'midday': return 'Midday Check-in';
-      case 'evening': return 'Evening Wind-down';
+    switch (timeOfDay) {
+      case 'morning': return 'Morning';
+      case 'midday':  return 'Midday';
+      case 'evening': return 'Evening';
     }
   };
 
-  const handleToggleTask = async (id: string) => {
-    await toggleLifeTaskCompleted(id);
-    setTasks(getLifeTasks());
-  };
-
-  const handleToggleEnabled = async (id: string) => {
-    await toggleLifeTaskEnabled(id);
-    setTasks(getLifeTasks());
-  };
+  const handleToggleTask    = async (id: string) => { await toggleLifeTaskCompleted(id); setTasks(getLifeTasks()); };
+  const handleToggleEnabled = async (id: string) => { await toggleLifeTaskEnabled(id);   setTasks(getLifeTasks()); };
 
   const handleLongPressLifeTask = (task: LifeTask) => {
     pinTaskToNotification({
-      id: task.id,
-      name: task.name,
-      type: 'life',
-      emoji: task.emoji,
-      timeWindow: task.timeWindow,
-      repeats: task.repeats,
-      completedCount: task.completedCount,
+      id: task.id, name: task.name, type: 'life',
+      emoji: task.emoji, timeWindow: task.timeWindow,
+      repeats: task.repeats, completedCount: task.completedCount,
     });
-    Alert.alert('📌 Pinned!', `"${task.name}" is now in your notification tray`);
+    Alert.alert('Pinned', `"${task.name}" is now in your notification tray`);
   };
 
-  const openEditModal = (task: LifeTask) => {
-    setEditingTask(task);
-    setIsCreatingNew(false);
-    setShowEditModal(true);
+  const openEditModal   = (task: LifeTask)  => { setEditingTask(task); setIsCreatingNew(false); setShowEditModal(true); };
+  const openCreateModal = (tod: TimeOfDay)  => { setEditingTask({ timeOfDay: tod } as LifeTask); setIsCreatingNew(true); setShowEditModal(true); };
+
+  const getCompletedCount = (tod: TimeOfDay) => {
+    const day   = enabledTasks.filter(t => t.timeOfDay === tod);
+    const done  = day.filter(t => t.completed).length;
+    return { completed: done, total: day.length };
   };
 
-  const openCreateModal = (timeOfDay: TimeOfDay) => {
-    // Create a temporary task with just the timeOfDay set
-    setEditingTask({ timeOfDay } as LifeTask);
-    setIsCreatingNew(true);
-    setShowEditModal(true);
-  };
-
-  const getCompletedCount = (timeOfDay: TimeOfDay) => {
-    const dayTasks = enabledTasks.filter(t => t.timeOfDay === timeOfDay);
-    const completed = dayTasks.filter(t => t.completed).length;
-    return { completed, total: dayTasks.length };
-  };
-
-  // Setup screen
+  // ── Setup screen ─────────────────────────────────────────────────────────────
   if (showSetup) {
-<<<<<<< HEAD
-  return (
-  <SafeAreaView style={styles.container} edges={['top']}>
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-   
-=======
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
-          <View style={styles.setupHeader}>
-            <Heart size={40} color="#8b5cf6" />
-            <Text style={styles.setupTitle}>Manage Your Reminders</Text>
-            <Text style={styles.setupSubtitle}>Toggle, edit, or add custom life tasks</Text>
+      <SafeAreaView style={s.container} edges={['top']}>
+        <View pointerEvents="none" style={s.ambientGlow} />
+        <ScrollView style={s.scrollView} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={s.setupHeader}>
+            <Text style={s.title}>Reminders</Text>
+            <Text style={s.subtitle}>Toggle, edit, or create daily habits</Text>
           </View>
 
-          {(['morning', 'midday', 'evening'] as TimeOfDay[]).map(timeOfDay => {
-            const Icon = getTimeIcon(timeOfDay);
-            const color = getTimeColor(timeOfDay);
-            const tasksForTime = groupedTasks[timeOfDay];
-
+          {(['morning', 'midday', 'evening'] as TimeOfDay[]).map(tod => {
+            const Icon  = getTimeIcon(tod);
+            const color = getTimeColor(tod);
             return (
-              <View key={timeOfDay} style={styles.setupSection}>
-                <View style={[styles.setupSectionHeader, { backgroundColor: color + '20' }]}>
-                  <View style={styles.setupSectionHeaderLeft}>
-                    <Icon size={20} color={color} />
-                    <Text style={[styles.setupSectionTitle, { color }]}>{getTimeLabel(timeOfDay)}</Text>
+              <View key={tod} style={s.setupSection}>
+                <View style={[s.setupSectionHeader, { borderColor: color + '40' }]}>
+                  <View style={s.setupSectionLeft}>
+                    <Icon size={16} color={color} strokeWidth={1.5} />
+                    <Text style={[s.setupSectionTitle, { color }]}>{getTimeLabel(tod)}</Text>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => openCreateModal(timeOfDay)}
-                    style={styles.addTaskButton}
-                  >
-                    <Plus size={18} color={color} />
+                  <TouchableOpacity onPress={() => openCreateModal(tod)} style={s.addBtn}>
+                    <Plus size={16} color={color} strokeWidth={1.5} />
                   </TouchableOpacity>
                 </View>
-                {tasksForTime.map(task => (
-                  <View key={task.id} style={styles.setupItem}>
-                    <View style={styles.setupItemLeft}>
-                      <Text style={styles.setupItemEmoji}>{task.emoji}</Text>
+
+                {groupedTasks[tod].map(task => (
+                  <View key={task.id} style={s.setupItem}>
+                    <View style={s.setupItemLeft}>
+                      <Text style={s.setupItemEmoji}>{task.emoji}</Text>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.setupItemName}>{task.name}</Text>
-                        <Text style={styles.setupItemTime}>{task.timeWindow}</Text>
+                        <Text style={s.setupItemName}>{task.name}</Text>
+                        <Text style={s.setupItemTime}>{task.timeWindow}</Text>
                       </View>
                     </View>
-                    <View style={styles.setupItemRight}>
-                      <TouchableOpacity
-                        onPress={() => openEditModal(task)}
-                        style={styles.editIconButton}
-                      >
-                        <Edit2 size={16} color="#9090b0" />
+                    <View style={s.setupItemRight}>
+                      <TouchableOpacity onPress={() => openEditModal(task)} style={s.editIconBtn}>
+                        <Edit2 size={14} color={colors.textMuted} strokeWidth={1.5} />
                       </TouchableOpacity>
                       <Switch
                         value={task.enabled}
                         onValueChange={() => handleToggleEnabled(task.id)}
-                        trackColor={{ false: '#d1d5db', true: '#c4b5fd' }}
-                        thumbColor={task.enabled ? '#8b5cf6' : '#f3f4f6'}
+                        trackColor={{ false: colors.bgElevated, true: colors.accent + '60' }}
+                        thumbColor={task.enabled ? colors.accent : colors.textMuted}
                       />
                     </View>
                   </View>
@@ -184,49 +136,35 @@ export default function LifeTasksScreen() {
             );
           })}
 
-          <TouchableOpacity 
-            style={styles.doneButton}
-            onPress={() => setShowSetup(false)}
-          >
-            <Text style={styles.doneButtonText}>Done</Text>
+          <TouchableOpacity style={s.doneButton} onPress={() => setShowSetup(false)} activeOpacity={0.8}>
+            <Text style={s.doneButtonText}>Done</Text>
           </TouchableOpacity>
         </ScrollView>
-        
+
         <LifeTaskModal
-          visible={showEditModal}
-          task={editingTask}
-          isCreatingNew={isCreatingNew}
-          onClose={() => setShowEditModal(false)}
-          onSave={() => setTasks(getLifeTasks())}
+          visible={showEditModal} task={editingTask} isCreatingNew={isCreatingNew}
+          onClose={() => setShowEditModal(false)} onSave={() => setTasks(getLifeTasks())}
         />
       </SafeAreaView>
     );
   }
 
-  // Main screen - No tasks enabled yet
+  // ── Empty screen ─────────────────────────────────────────────────────────────
   if (!hasAnyEnabled) {
     return (
-<<<<<<< HEAD
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-    
-=======
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
-          <View style={styles.emptyState}>
-            <Heart size={60} color="#8b5cf6" />
-            <Text style={styles.emptyTitle}>Life Tasks</Text>
-            <Text style={styles.emptySubtitle}>Gentle reminders for daily self-care</Text>
-            <Text style={styles.emptyDescription}>
-              Get optional reminders for things like meals, hydration, exercise, and rest. 
-              No pressure, no judgment — just supportive nudges when you need them.
+      <SafeAreaView style={s.container} edges={['top']}>
+        <View pointerEvents="none" style={s.ambientGlow} />
+        <ScrollView style={s.scrollView} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={s.emptyState}>
+            <View style={s.emptyIconWrap}>
+              <Heart size={28} color={colors.accent} strokeWidth={1.5} />
+            </View>
+            <Text style={s.emptyTitle}>Life Tasks</Text>
+            <Text style={s.emptyBody}>
+              Gentle nudges for self-care — meals, hydration, rest. No pressure, just support.
             </Text>
-            <TouchableOpacity 
-              style={styles.setupButton}
-              onPress={() => setShowSetup(true)}
-            >
-              <Text style={styles.setupButtonText}>Choose Your Reminders</Text>
+            <TouchableOpacity style={s.setupButton} onPress={() => setShowSetup(true)} activeOpacity={0.8}>
+              <Text style={s.setupButtonText}>Choose Your Reminders</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -234,95 +172,69 @@ export default function LifeTasksScreen() {
     );
   }
 
-  // Main screen - With enabled tasks
+  // ── Main screen ───────────────────────────────────────────────────────────────
   return (
-<<<<<<< HEAD
-  <SafeAreaView style={styles.container} edges={['top']}>
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+    <SafeAreaView style={s.container} edges={['top']}>
+      <View pointerEvents="none" style={s.ambientGlow} />
+      <ScrollView style={s.scrollView} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
 
-=======
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <PinnedTaskBanner onUpdate={() => forceUpdate({})} />
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
-        <View style={styles.headerContainer}>
-          <View>
-            <Text style={styles.title}>Life Tasks</Text>
-            <Text style={styles.subtitle}>Taking care of yourself today 💙</Text>
+        <View style={s.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.title}>Life Tasks</Text>
+            <Text style={s.subtitle}>Taking care of yourself 💙</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowSetup(true)}>
-            <Settings size={24} color="#FFFFFF" />
+          <TouchableOpacity onPress={() => setShowSetup(true)} style={s.settingsBtn} activeOpacity={0.7}>
+            <Settings size={18} color={colors.textMuted} strokeWidth={1.5} />
           </TouchableOpacity>
         </View>
 
-        {(['morning', 'midday', 'evening'] as TimeOfDay[]).map(timeOfDay => {
-          const Icon = getTimeIcon(timeOfDay);
-          const color = getTimeColor(timeOfDay);
-          const { completed, total } = getCompletedCount(timeOfDay);
-          const enabledTasksForTime = enabledTasks.filter(t => t.timeOfDay === timeOfDay);
-
+        {(['morning', 'midday', 'evening'] as TimeOfDay[]).map(tod => {
+          const Icon  = getTimeIcon(tod);
+          const color = getTimeColor(tod);
+          const { completed, total } = getCompletedCount(tod);
+          const todTasks = enabledTasks.filter(t => t.timeOfDay === tod);
           if (total === 0) return null;
 
           return (
-            <View key={timeOfDay} style={styles.section}>
-              <View style={[styles.sectionHeader, { backgroundColor: color + '20' }]}>
-                <View style={styles.sectionLeft}>
-                  <Icon size={24} color={color} />
-                  <Text style={[styles.sectionTitle, { color }]}>{getTimeLabel(timeOfDay)}</Text>
-                </View>
-                <View style={styles.progressBadge}>
-                  <Text style={styles.progressText}>{completed}/{total}</Text>
+            <View key={tod} style={s.section}>
+              <View style={s.sectionHeader}>
+                <Icon size={16} color={color} strokeWidth={1.5} />
+                <Text style={[s.sectionTitle, { color }]}>{getTimeLabel(tod)}</Text>
+                <View style={s.progressPill}>
+                  <Text style={s.progressText}>{completed}/{total}</Text>
                 </View>
               </View>
 
-              {enabledTasksForTime.map(task => (
+              {todTasks.map(task => (
                 <TouchableOpacity
                   key={task.id}
                   onPress={() => handleToggleTask(task.id)}
                   onLongPress={() => handleLongPressLifeTask(task)}
                   delayLongPress={500}
-                  style={[styles.taskCard, task.completed && styles.taskCardCompleted]}
+                  activeOpacity={0.8}
+                  style={[s.taskCard, task.completed && s.taskCardDone]}
                 >
-                  <View style={styles.taskLeft}>
-                    <View style={[styles.checkbox, task.completed && styles.checkboxCompleted]}>
-                      {task.completed && <Check size={16} color="#fff" />}
+                  <View style={[s.checkbox, task.completed && s.checkboxDone]}>
+                    {task.completed && <Check size={14} color="#fff" strokeWidth={2} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={s.taskNameRow}>
+                      <Text style={s.taskEmoji}>{task.emoji}</Text>
+                      <Text style={[s.taskName, task.completed && s.taskNameDone]}>
+                        {task.name}
+                      </Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.taskNameRow}>
-                        <Text style={styles.taskEmoji}>{task.emoji}</Text>
-                        <Text style={[styles.taskName, task.completed && styles.taskNameCompleted]}>
-                          {task.name}
+                    <Text style={s.taskTime}>{task.timeWindow}</Text>
+                    {task.repeats && task.repeats > 1 && (
+                      <View style={s.dotsRow}>
+                        {Array.from({ length: task.repeats }).map((_, i) => (
+                          <View key={i} style={[s.dot, i < task.completedCount && s.dotFilled]} />
+                        ))}
+                        <Text style={s.dotLabel}>
+                          {task.completed ? 'All done 🎉' : task.completedCount > 0 ? `${task.completedCount}/${task.repeats}` : `${task.repeats}×`}
                         </Text>
                       </View>
-<<<<<<< HEAD
                     )}
-=======
-                      <Text style={styles.taskTime}>Anytime between {task.timeWindow}</Text>
-                      {task.repeats && task.repeats > 1 && (
-                        <View style={styles.progressContainer}>
-                          <View style={styles.progressDots}>
-                            {Array.from({ length: task.repeats }).map((_, index) => (
-                              <View
-                                key={index}
-                                style={[
-                                  styles.progressDot,
-                                  index < task.completedCount && styles.progressDotFilled,
-                                ]}
-                              />
-                            ))}
-                          </View>
-                          <Text style={styles.progressTextSmall}>
-                            {task.completed 
-                              ? 'All done! 🎉' 
-                              : task.completedCount > 0 
-                                ? `${task.completedCount}/${task.repeats} done today`
-                                : `${task.repeats}x today`}
-                          </Text>
-                        </View>
-                      )}
-                      <Text style={styles.pinHint}>💡 Long-press to pin</Text>
-                    </View>
->>>>>>> 9f2b95e8490cc52c4047002c2d0fb70af828cc7c
                   </View>
                 </TouchableOpacity>
               ))}
@@ -330,343 +242,119 @@ export default function LifeTasksScreen() {
           );
         })}
 
-        <View style={styles.encouragement}>
-          <Text style={styles.encouragementText}>
+        <View style={s.encouragement}>
+          <Text style={s.encouragementText}>
             {enabledTasks.filter(t => t.completed).length === enabledTasks.length
-              ? "Amazing! You've taken care of yourself today 🌟"
-              : "Remember: These are gentle reminders, not obligations. Do what you can 💙"}
+              ? "You've taken care of yourself today ✦"
+              : "These are gentle reminders, not obligations 💙"}
           </Text>
         </View>
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
+const s = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: colors.bgBase },
+  scrollView:  { flex: 1 },
+  scrollContent: { padding: 20 },
+  ambientGlow: {
+    position: 'absolute', top: -80, alignSelf: 'center',
+    width: 360, height: 360, borderRadius: 180,
+    backgroundColor: colors.accentDim, opacity: 0.7,
   },
-  scrollView: {
-    flex: 1,
+
+  // Header
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingTop: 8 },
+  title:  { fontFamily: typography.displayFont, fontSize: 28, color: colors.textPrimary, letterSpacing: -0.5, marginBottom: 3 },
+  subtitle: { fontFamily: typography.bodyFont, fontSize: 13, color: colors.textMuted },
+  settingsBtn: {
+    width: 36, height: 36, borderRadius: radius.md,
+    backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
   },
-  scrollContent: {
-    padding: 20,
-  },
-  headerContainer: {
-    backgroundColor: '#0F172A',
-    marginHorizontal: -20,
-    marginTop: -20,
-    padding: 24,
-    paddingTop: 20,
-    marginBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  title: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 28,
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.65)',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: 20,
-  },
-  emptyTitle: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 28,
-    color: '#111827',
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 16,
-  },
-  emptyDescription: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 32,
-  },
-  setupButton: {
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 16,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  setupButtonText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  setupHeader: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  setupTitle: {
-    fontFamily: 'Nunito-Bold',
-    fontSize: 24,
-    color: '#111827',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  setupSubtitle: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    paddingHorizontal: 20,
-  },
-  setupSection: {
-    marginBottom: 24,
-  },
+
+  // Setup
+  setupHeader: { marginBottom: 28, paddingTop: 8 },
+  setupSection: { marginBottom: 20 },
   setupSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.md,
+    borderWidth: 1, backgroundColor: colors.bgSurface, marginBottom: 8,
   },
-  setupSectionHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  setupSectionTitle: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 16,
-  },
-  addTaskButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  setupSectionLeft:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  setupSectionTitle: { fontFamily: typography.uiFont, fontSize: 13, letterSpacing: 0.3 },
+  addBtn: {
+    width: 28, height: 28, borderRadius: radius.sm,
+    backgroundColor: colors.bgElevated, alignItems: 'center', justifyContent: 'center',
   },
   setupItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 14,
+    backgroundColor: colors.bgSurface, borderRadius: radius.md,
+    marginBottom: 6, borderWidth: 1, borderColor: colors.borderSubtle,
   },
-  setupItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  setupItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  editIconButton: {
-    padding: 4,
-  },
-  setupItemEmoji: {
-    fontSize: 24,
-  },
-  setupItemName: {
-    fontFamily: 'Nunito-Medium',
-    fontSize: 16,
-    color: '#111827',
-  },
-  setupItemTime: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-  },
+  setupItemLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  setupItemRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  editIconBtn:    { padding: 4 },
+  setupItemEmoji: { fontSize: 22 },
+  setupItemName:  { fontFamily: typography.uiFont,  fontSize: 14, color: colors.textPrimary },
+  setupItemTime:  { fontFamily: typography.bodyFont, fontSize: 12, color: colors.textMuted, marginTop: 1 },
   doneButton: {
-    backgroundColor: '#0F172A',
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    marginTop: 16,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
+    backgroundColor: colors.accent, paddingVertical: 15, borderRadius: radius.md,
+    alignItems: 'center', marginTop: 16, ...shadows.accent,
   },
-  doneButtonText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 18,
-    color: '#FFFFFF',
+  doneButtonText: { fontFamily: typography.uiFont, fontSize: 16, color: '#FFFFFF' },
+
+  // Empty
+  emptyState:    { alignItems: 'center', paddingTop: 80, paddingHorizontal: 24 },
+  emptyIconWrap: {
+    width: 64, height: 64, borderRadius: radius.full,
+    backgroundColor: colors.accentDim, alignItems: 'center', justifyContent: 'center', marginBottom: 20,
   },
-  section: {
-    marginBottom: 24,
+  emptyTitle: { fontFamily: typography.headingFont, fontSize: 22, color: colors.textPrimary, marginBottom: 10 },
+  emptyBody:  { fontFamily: typography.bodyFont,   fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  setupButton: {
+    backgroundColor: colors.accent, paddingHorizontal: 28, paddingVertical: 14,
+    borderRadius: radius.md, ...shadows.accent,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  sectionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  sectionTitle: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 18,
-  },
-  progressBadge: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  progressText: {
-    fontFamily: 'Nunito-SemiBold',
-    fontSize: 13,
-    color: '#111827',
-  },
+  setupButtonText: { fontFamily: typography.uiFont, fontSize: 15, color: '#FFFFFF' },
+
+  // Section
+  section:       { marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  sectionTitle:  { fontFamily: typography.uiFont, fontSize: 12, letterSpacing: 0.5, textTransform: 'uppercase', flex: 1 },
+  progressPill:  { backgroundColor: colors.bgElevated, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border },
+  progressText:  { fontFamily: typography.uiFont, fontSize: 11, color: colors.textMuted },
+
+  // Task card
   taskCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    backgroundColor: colors.bgSurface, borderRadius: radius.lg,
+    padding: 14, marginBottom: 8, borderWidth: 1, borderColor: colors.border,
   },
-  taskCardCompleted: {
-    backgroundColor: '#f0fdf4',
-    borderColor: 'rgba(34, 197, 94, 0.2)',
-  },
-  taskLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
+  taskCardDone: { borderColor: colors.success + '30', backgroundColor: colors.successDim },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 22, height: 22, borderRadius: radius.full,
+    borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 1,
   },
-  checkboxCompleted: {
-    backgroundColor: '#22c55e',
-    borderColor: '#22c55e',
-  },
-  taskNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  taskEmoji: {
-    fontSize: 20,
-  },
-  taskName: {
-    fontFamily: 'Nunito-Medium',
-    fontSize: 16,
-    color: '#111827',
-  },
-  taskNameCompleted: {
-    fontFamily: 'Nunito-Regular',
-    color: '#6B7280',
-    textDecorationLine: 'line-through',
-  },
-  taskTime: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
+  checkboxDone: { backgroundColor: colors.success, borderColor: colors.success },
+  taskNameRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  taskEmoji:    { fontSize: 18 },
+  taskName:     { fontFamily: typography.uiFont, fontSize: 15, color: colors.textPrimary, flex: 1 },
+  taskNameDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
+  taskTime:     { fontFamily: typography.bodyFont, fontSize: 12, color: colors.textMuted, marginBottom: 6 },
+  dotsRow:      { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  dot:          { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
+  dotFilled:    { backgroundColor: colors.success },
+  dotLabel:     { fontFamily: typography.bodyFont, fontSize: 11, color: colors.textMuted, marginLeft: 2 },
+
+  // Encouragement
   encouragement: {
-    backgroundColor: '#F1F5F9',
-    padding: 20,
-    borderRadius: 14,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: colors.bgSurface, padding: 16, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.borderSubtle, marginTop: 8,
   },
-  encouragementText: {
-    fontFamily: 'Nunito-Regular',
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  progressContainer: {
-    marginTop: 8,
-    gap: 6,
-  },
-  progressDots: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E5E7EB',
-  },
-  progressDotFilled: {
-    backgroundColor: '#22c55e',
-  },
-  progressTextSmall: {
-    fontFamily: 'Nunito-Medium',
-    fontSize: 11,
-    color: '#6B7280',
-  },
+  encouragementText: { fontFamily: typography.bodyFont, fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
 });
