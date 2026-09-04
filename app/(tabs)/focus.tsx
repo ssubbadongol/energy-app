@@ -1,252 +1,141 @@
-import { useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
-import Svg, { Polyline } from 'react-native-svg';
-import { Button, Rule, Screen, Surface, Text, haptic } from '@/components/primitives';
-import { curve, gutter, palette, radius, space } from '@/theme/tokens';
+import { Camera } from 'lucide-react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Line, Path } from 'react-native-svg';
+import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
-/**
- * Focus session — direction sample.
- *
- * STATIC. No camera, no timer, no tracking; the numbers are fixed and the
- * button only swaps between the two states.
- *
- * ── Layout note ──────────────────────────────────────────────────────────
- *
- * Every vertical dimension here is either content-sized or a flexible spacer.
- * There are no fixed margins between the blocks, because a fixed rhythm that
- * fits a 812pt viewport overflows a 667pt one, and this screen must not
- * scroll — a focus session that you can accidentally swipe is not a focus
- * session. The metric steps down on short screens instead.
- */
+/* ------------------------------------------------------------------ *
+ * UI-first: simulated focus telemetry. Wire to expo-camera / the
+ * attention model in the second pass.
+ * ------------------------------------------------------------------ */
 
-/** Fixed sample. Replaced by the Presage stream when session logic lands. */
-const SAMPLE = [
-  52, 58, 61, 57, 64, 71, 76, 74, 79, 83, 81, 86, 88, 84, 79, 72, 63, 55, 48,
-  44, 41, 47, 56, 64, 70, 75, 78, 82, 85, 87, 86, 89, 91, 88, 85, 87,
-];
-
-/**
- * The metric is the one place a token gets a responsive override. 128pt is
- * the design size; below it the number would either clip or force the graph
- * off the bottom, and a clipped number is worse than a smaller one.
- */
-function metricSize(viewportHeight: number) {
-  if (viewportHeight >= 780) return { fontSize: 128, lineHeight: 128 };
-  if (viewportHeight >= 700) return { fontSize: 108, lineHeight: 108 };
-  return { fontSize: 88, lineHeight: 88 };
-}
+const SEED_HIST = [62, 68, 74, 71, 66, 70, 77, 81, 84, 80, 75, 72, 78, 83, 86, 84, 79, 74, 70, 73, 77, 80, 82, 78, 75, 79, 83, 85, 81, 78];
+const W = 320;
+const H = 110;
 
 export default function FocusScreen() {
-  const [active, setActive] = useState(true);
+  const [running, setRunning] = useState(true);
+  const [hist, setHist] = useState<number[]>(SEED_HIST);
+  const [focusPct, setFocusPct] = useState(78);
+  const [elapsed, setElapsed] = useState(742);
+  const [drift, setDrift] = useState(3);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  return active ? (
-    <ActiveSession onEnd={() => setActive(false)} />
-  ) : (
-    <Threshold onBegin={() => setActive(true)} />
-  );
-}
+  useEffect(() => {
+    timer.current = setInterval(() => {
+      if (!running) return;
+      setHist((h) => {
+        const last = h[h.length - 1];
+        const next = Math.max(28, Math.min(97, Math.round(last + (Math.random() * 22 - 11))));
+        setFocusPct(next);
+        setDrift((d) => (next < 45 && last >= 45 ? d + 1 : d));
+        return [...h.slice(1), next];
+      });
+      setElapsed((e) => e + 2);
+    }, 1400);
+    return () => { if (timer.current) clearInterval(timer.current); };
+  }, [running]);
 
-/* ------------------------------------------------------------------ *
- * Live session
- * ------------------------------------------------------------------ */
-
-function ActiveSession({ onEnd }: { onEnd: () => void }) {
-  const { height } = useWindowDimensions();
-  const metric = metricSize(height);
+  const pts = hist.map((v, i) => [i * (W / (hist.length - 1)), H - 8 - (v / 100) * (H - 20)]);
+  const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const area = `${path} L${W},${H} L0,${H} Z`;
+  const avg = Math.round(hist.reduce((a, b) => a + b, 0) / hist.length);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  const deepMin = Math.max(1, Math.round((elapsed / 60) * 0.72));
 
   return (
-    <Screen label="Session 04" labelTrailing="24:18" testID="focus-active">
-      <View style={styles.activeBody}>
-        {/*
-          The emphasis surface: a deep ink block inset from the screen edges so
-          its 24pt rounding is actually visible. Everything inside it flips
-          palette through context — no component is told about it.
-        */}
-        <Surface name="emphasis">
-          <View style={[styles.block, curve]}>
-            <View style={styles.blockHead}>
-              <Text variant="label" tone="secondary">
-                Focus
-              </Text>
-              <Text variant="label" tone="secondary">
-                Steady
-              </Text>
-            </View>
-            <Rule />
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <View style={styles.tintBand} pointerEvents="none" />
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={text.title}>Focus</Text>
+          <Text style={text.body}>{mm}:{ss} this session</Text>
+        </View>
 
-            {/* Baseline-aligned so % sits on the digits' baseline, not at cap height. */}
-            <View style={styles.metricRow}>
-              <Text variant="metric" style={metric} accessibilityLabel="Focus 87 percent">
-                87
-              </Text>
-              <Text variant="metricSm" tone="secondary" style={styles.percent}>
-                %
-              </Text>
-            </View>
-
-            <View style={styles.spacer} />
-
-            <FocusGraph data={SAMPLE} />
-
-            <View style={styles.graphMeta}>
-              <Text variant="labelSm" tone="secondary">
-                Last 3 min
-              </Text>
-              <Text variant="labelSm" tone="secondary">
-                Avg 72%
-              </Text>
-            </View>
+        {/* camera feed placeholder */}
+        <View style={styles.feed}>
+          <View style={styles.feedCenter}>
+            <Camera size={30} color={sage.leafSoft} strokeWidth={1.5} />
+            <Text style={styles.feedLabel}>front camera feed</Text>
           </View>
-        </Surface>
-
-        <Button
-          label="End session"
-          variant="outline"
-          size="md"
-          pill
-          fullWidth
-          style={styles.endButton}
-          onPress={() => {
-            haptic('heavy');
-            onEnd();
-          }}
-        />
-      </View>
-    </Screen>
-  );
-}
-
-/**
- * The graph.
- *
- * A hairline polyline — no fill, no gradient, no dots, no axes, no grid, and
- * bounded by straight rules rather than a rounded plot box. Rounding it would
- * make it an object floating inside the block; left square and full-bleed to
- * the block's padding it stays part of the page structure, which is the
- * distinction the whole shape system rests on.
- *
- * Deliberately unsmoothed. A bezier would imply the attention signal is
- * continuous and gentle; it is neither.
- */
-function FocusGraph({ data }: { data: number[] }) {
-  const { width } = useWindowDimensions();
-  const plotWidth = width - gutter * 2 - space[4] * 2 - space[5] * 2;
-  const plotHeight = 104;
-
-  const points = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * plotWidth;
-      const y = plotHeight - (v / 100) * plotHeight;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
-
-  return (
-    <View accessibilityLabel="Focus over the last 3 minutes, averaging 72 percent">
-      <Rule weight="faint" />
-      <Svg width={plotWidth} height={plotHeight}>
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={palette.emphasis.fg}
-          strokeWidth={1}
-          strokeLinejoin="miter"
-        />
-      </Svg>
-      <Rule weight="faint" />
-    </View>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * Threshold
- * ------------------------------------------------------------------ */
-
-function Threshold({ onBegin }: { onBegin: () => void }) {
-  return (
-    <Screen label="Focus" testID="focus-threshold">
-      <View style={styles.thresholdBody}>
-        {/* Collage image slot — see DESIGN.md. Not yet sourced. */}
-
-        <Text variant="display">Ready when you are.</Text>
-
-        <Text variant="body" tone="secondary" style={styles.thresholdCopy}>
-          Your camera tracks how steady your attention is. Nothing is recorded
-          and nothing leaves your phone.
-        </Text>
-
-        <View style={styles.thresholdMeta}>
-          <Rule />
-          <View style={styles.thresholdMetaRow}>
-            <Text variant="labelSm" tone="secondary">
-              Last session
-            </Text>
-            <Text variant="labelSm" tone="secondary">
-              38 min · Avg 74%
-            </Text>
+          <View style={styles.livePill}>
+            <View style={[styles.liveDot, { backgroundColor: running ? sage.leaf : sage.fgFaint }]} />
+            <Text style={styles.liveLabel}>{running ? 'Tracking' : 'Paused'}</Text>
+          </View>
+          <View style={styles.focusBadge}>
+            <Text style={styles.focusBadgeNum}>{focusPct}</Text>
+            <Text style={styles.focusBadgePct}>% focus</Text>
           </View>
         </View>
 
-        <Button
-          label="Begin session"
-          variant="solid"
-          size="lg"
-          pill
-          fullWidth
-          style={styles.beginButton}
-          onPress={() => {
-            haptic('heavy');
-            onBegin();
-          }}
-        />
-      </View>
-    </Screen>
+        {/* chart */}
+        <View style={[styles.card, { marginTop: 14 }]}>
+          <View style={styles.chartHead}>
+            <Text style={text.cardTitle}>Last 3 minutes</Text>
+            <Text style={text.meta}>avg {avg}%</Text>
+          </View>
+          <Svg width="100%" height={110} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+            <Line x1="0" y1="22" x2={W} y2="22" stroke={sage.rule} strokeWidth="1" />
+            <Line x1="0" y1="55" x2={W} y2="55" stroke={sage.rule} strokeWidth="1" />
+            <Line x1="0" y1="88" x2={W} y2="88" stroke={sage.rule} strokeWidth="1" />
+            <Path d={area} fill={sage.fillGreen} />
+            <Path d={path} fill="none" stroke={sage.primary} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          </Svg>
+          <View style={styles.chartAxis}>
+            <Text style={styles.axisLabel}>-3m</Text><Text style={styles.axisLabel}>-2m</Text><Text style={styles.axisLabel}>-1m</Text><Text style={styles.axisLabel}>now</Text>
+          </View>
+        </View>
+
+        {/* stats */}
+        <View style={styles.statsRow}>
+          <View style={[styles.card, styles.statCard]}>
+            <Text style={styles.statNum}>{drift}</Text>
+            <Text style={styles.statLabel}>gentle nudges</Text>
+          </View>
+          <View style={[styles.card, styles.statCard]}>
+            <Text style={styles.statNum}>{deepMin}</Text>
+            <Text style={styles.statLabel}>minutes settled</Text>
+          </View>
+        </View>
+
+        <Pressable onPress={() => setRunning((r) => !r)} style={[styles.toggle, running ? { backgroundColor: sage.fillGreenAlt } : { backgroundColor: sage.primary }]}>
+          <Text style={[text.button, { color: running ? sage.primaryInk : sage.onPrimary }]}>{running ? 'Pause tracking' : 'Resume tracking'}</Text>
+        </Pressable>
+        <Text style={styles.note}>Video never leaves your phone. Looking away is data, not failure.</Text>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  /* Live session */
-  activeBody: { flex: 1, paddingBottom: space[5] },
-  block: {
-    flex: 1,
-    backgroundColor: palette.emphasis.bg,
-    borderRadius: radius.lg,
-    paddingHorizontal: space[5],
-    paddingVertical: space[5],
-  },
-  blockHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: space[2],
-  },
-  metricRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: space[5],
-  },
-  percent: { marginLeft: space[2] },
-  // Absorbs whatever height is left over, so nothing else has to be fixed.
-  spacer: { flex: 1, minHeight: space[5] },
-  graphMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: space[3],
-  },
-  endButton: { marginTop: space[5] },
+  screen: { flex: 1, backgroundColor: sage.bg },
+  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 180, backgroundColor: sage.bgTintTop, opacity: 0.45 },
+  scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
-  /* Threshold */
-  thresholdBody: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    paddingBottom: space[10],
-  },
-  thresholdCopy: { marginTop: space[5], maxWidth: 300 },
-  thresholdMeta: { marginTop: space[10] },
-  thresholdMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: space[3],
-  },
-  beginButton: { marginTop: space[8] },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 8, paddingBottom: 16 },
+
+  feed: { borderRadius: radius.cardLg, overflow: 'hidden', height: 210, backgroundColor: '#e0ebe4', ...shadow.card, ...curve },
+  feedCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  feedLabel: { fontFamily: font.body, fontSize: 11, color: sage.fgSecondary, letterSpacing: 0.4 },
+  livePill: { position: 'absolute', left: 14, top: 14, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(255,255,255,.86)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  liveDot: { width: 7, height: 7, borderRadius: 3.5 },
+  liveLabel: { fontFamily: font.heading, fontSize: 11, color: sage.primaryDeep },
+  focusBadge: { position: 'absolute', right: 14, bottom: 14, flexDirection: 'row', alignItems: 'baseline', gap: 3, backgroundColor: 'rgba(255,255,255,.9)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  focusBadgeNum: { fontFamily: font.headingBold, fontSize: 22, color: sage.primaryDeep },
+  focusBadgePct: { fontFamily: font.heading, fontSize: 12, color: sage.fgMuted },
+
+  card: { backgroundColor: sage.surface, borderRadius: radius.cardLg, padding: 18, ...shadow.card, ...curve },
+  chartHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 },
+  chartAxis: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 2 },
+  axisLabel: { fontFamily: font.body, fontSize: 11, color: sage.fgFaint },
+
+  statsRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  statCard: { flex: 1, padding: 16 },
+  statNum: { fontFamily: font.headingBold, fontSize: 22, color: sage.primaryDeep },
+  statLabel: { fontFamily: font.body, fontSize: 12, color: sage.fgMuted, marginTop: 2 },
+
+  toggle: { marginTop: 14, borderRadius: 22, paddingVertical: 17, alignItems: 'center', ...shadow.card, ...curve },
+  note: { fontFamily: font.body, fontSize: 12, lineHeight: 18, color: sage.primaryInk, textAlign: 'center', marginTop: 12, marginHorizontal: 4 },
 });

@@ -1,659 +1,185 @@
-import { LogOut, MessageCircle, Send } from 'lucide-react-native';
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Send } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ensureAuth, findOrCreatePod, getUserPod, isPodExpired, leavePod, sendMessage, subscribeToPodMessages } from '../podService';
+import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
+
+/* ------------------------------------------------------------------ *
+ * Local placeholder state (UI-first — wire to podService later)
+ * ------------------------------------------------------------------ */
 
 interface Pod {
   id: string;
-  struggle: string;
-  supportStyle: string;
-  duration: string;
-  memberCount: number;
-  isActive: boolean;
-  expiresAt: any;
-  [key: string]: any;
+  name: string;
+  blurb: string;
+  expiry: string;
+  count: string;
+  seats: string[];
+  joined: boolean;
+  accent: string;
 }
 
-interface Message {
-  id: string;
-  type: 'user' | 'system';
-  text: string;
-  userId?: string;
-  createdAt: any;
-}
+interface PodMsg { id: number; who: string; from: 'o' | 'u'; text: string }
 
-// ADHD-friendly soft colors for user messages - expanded palette
-const USER_COLORS = [
-  '#E8F5E9', // Soft mint green
-  '#E3F2FD', // Soft sky blue
-  '#FFF9C4', // Soft warm yellow
-  '#F3E5F5', // Soft lavender
-  '#FFE0B2', // Soft peach
-  '#F0F4C3', // Soft lime
-  '#FCE4EC', // Soft pink
-  '#E0F2F1', // Soft teal
-  '#FFF3E0', // Soft amber
-  '#E1BEE7', // Soft purple
+const PODS: Pod[] = [
+  { id: 'p1', name: 'Quiet co-study, cameras off', blurb: 'Four people working in parallel. Check-in every 25 minutes, no talking required.', expiry: '7d', count: '4 of 5', seats: ['#cfe3d6', '#e3dcc9', '#d3dfe8', '#e6d6d4'], joined: true, accent: '#a8cbb6' },
+  { id: 'p2', name: 'Executive dysfunction corner', blurb: 'For the days where starting is the hard part. Post one sentence about what you are avoiding.', expiry: '24h', count: '3 of 5', seats: ['#e3dcc9', '#cfe3d6', '#d9d3e4'], joined: false, accent: '#dcc9a8' },
+  { id: 'p3', name: 'Late-night thesis pod', blurb: 'Slow, quiet, mostly typing sounds. Closes at 6am.', expiry: '24h', count: '5 of 5', seats: ['#d3dfe8', '#cfe3d6', '#e6d6d4', '#e3dcc9', '#d9d3e4'], joined: false, accent: '#a8bfd4' },
+  { id: 'p4', name: 'Sensory reset', blurb: 'Share what helped today. Lights, sound, texture, weather.', expiry: '7d', count: '2 of 4', seats: ['#e6d6d4', '#cfe3d6'], joined: false, accent: '#d4b0ab' },
 ];
 
-// Assign color based on userId - uses different hash algorithm for better distribution
-const getUserColor = (userId: string): string => {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = ((hash << 5) - hash) + userId.charCodeAt(i);
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  const index = Math.abs(hash) % USER_COLORS.length;
-  return USER_COLORS[index];
+const SEED_MSGS: Record<string, PodMsg[]> = {
+  p1: [
+    { id: 1, who: 'Heron', from: 'o', text: 'Starting a 25. Working on lab write-up.' },
+    { id: 2, who: 'Moss', from: 'o', text: 'Same. Timer set, phone in the drawer.' },
+    { id: 3, who: 'You', from: 'u', text: 'Joining late but joining.' },
+    { id: 4, who: 'Heron', from: 'o', text: 'Late is fine. Twelve minutes left on this one.' },
+  ],
+  p2: [{ id: 1, who: 'Wren', from: 'o', text: 'Avoiding: the email. It has been four days.' }],
+  p3: [{ id: 1, who: 'Ash', from: 'o', text: 'Chapter three, paragraph one. Again.' }],
+  p4: [{ id: 1, who: 'Fern', from: 'o', text: 'Warm lamp instead of the ceiling light. Big difference.' }],
 };
 
-/**
- * Pods tab — anonymous community support pods.
- *
- * Split out of the former combined "Talks" screen; this is the `'community'`
- * half. The AI mentor chat now lives in its own `mentor.tsx` tab.
- */
 export default function PodsScreen() {
-  const [currentPod, setCurrentPod] = useState<Pod | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messageText, setMessageText] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [pods, setPods] = useState<Pod[]>(PODS);
+  const [activePod, setActivePod] = useState<string | null>(null);
+  const [msgs, setMsgs] = useState<Record<string, PodMsg[]>>(SEED_MSGS);
+  const [draft, setDraft] = useState('');
 
-  // Join flow state
-  const [struggle, setStruggle] = useState('');
-  const [supportStyle, setSupportStyle] = useState('');
-  const [duration, setDuration] = useState('');
-  const [joining, setJoining] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-
-  const loadUserPod = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Ensure currentUserId is set BEFORE loading pod
-      if (!currentUserId) {
-        const userId = await ensureAuth();
-        setCurrentUserId(userId);
-      }
-
-      const pod = await getUserPod();
-      setCurrentPod(pod as Pod | null);
-    } catch (error) {
-      console.error('Error loading pod:', error);
-    }
-    setLoading(false);
-  }, [currentUserId]);
-
-  useEffect(() => {
-    loadUserPod();
-  }, [loadUserPod]);
-
-  useEffect(() => {
-    // Get and store current user ID - CRITICAL for message alignment
-    const getCurrentUserId = async () => {
-      const userId = await ensureAuth();
-      setCurrentUserId(userId);
-    };
-    getCurrentUserId();
-  }, []);
-
-  useEffect(() => {
-    if (currentPod) {
-      // Clear old messages first
-      setMessages([]);
-
-      const unsubscribe = subscribeToPodMessages(currentPod.id, (msgs: Message[]) => {
-        setMessages(msgs);
-      });
-
-      return () => {
-        unsubscribe();
-        // Clear messages when unsubscribing
-        setMessages([]);
-      };
-    } else {
-      // No pod - clear messages
-      setMessages([]);
-    }
-  }, [currentPod, currentUserId]);
-
-  const handleJoinPod = async () => {
-    if (!struggle || !supportStyle || !duration) {
-      Alert.alert('Missing Info', 'Please answer all questions');
-      return;
-    }
-
-    setJoining(true);
-    try {
-      // Ensure currentUserId is set BEFORE joining
-      if (!currentUserId) {
-        const userId = await ensureAuth();
-        setCurrentUserId(userId);
-      }
-
-      await findOrCreatePod(struggle, supportStyle, duration);
-      await loadUserPod();
-
-      // Reset join form
-      setStruggle('');
-      setSupportStyle('');
-      setDuration('');
-
-      Alert.alert('Welcome! 🎉', 'You\'ve joined a pod. Be kind and supportive.');
-    } catch (error) {
-      console.error('Error joining pod:', error);
-      Alert.alert('Error', 'Could not join a pod. Please try again.');
-    }
-    setJoining(false);
+  const open = (id: string) => {
+    setPods((ps) => ps.map((p) => (p.id === id ? { ...p, joined: true } : p)));
+    setActivePod(id);
+  };
+  const send = () => {
+    const t = draft.trim();
+    if (!t || !activePod) return;
+    setDraft('');
+    setMsgs((m) => ({ ...m, [activePod]: [...(m[activePod] || []), { id: Date.now(), who: 'You', from: 'u', text: t }] }));
   };
 
-  const handleSendMessage = async () => {
-    if (!messageText.trim() || !currentPod) return;
+  const pod = pods.find((p) => p.id === activePod) || null;
 
-    const textToSend = messageText;
-    setMessageText('');
-
-    try {
-      await sendMessage(currentPod.id, textToSend);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Error', 'Could not send message');
-    }
-  };
-
-  const handleLeavePod = () => {
-    if (!currentPod || leaving) return;
-
-    Alert.alert(
-      'Leave Pod?',
-      'Are you sure you want to leave this pod? Your chat history will be cleared.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Leave',
-          style: 'destructive',
-          onPress: async () => {
-            if (leaving) return; // Prevent double-clicking
-
-            setLeaving(true);
-            try {
-              const podToLeave = currentPod.id;
-
-              // Clear UI immediately
-              setCurrentPod(null);
-              setMessages([]);
-
-              // Then update Firestore
-              await leavePod(podToLeave);
-
-              Alert.alert('Left Pod', 'Chat history has been cleared. You can join a new pod.');
-            } catch (error) {
-              console.error('Error leaving pod:', error);
-              Alert.alert('Error', 'Could not leave pod. Please try again.');
-            } finally {
-              setLeaving(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const formatTimestamp = (timestamp: any) => {
-    if (!timestamp) return '';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    const displayMinutes = minutes < 10 ? '0' + minutes : minutes;
-    return `${displayHours}:${displayMinutes} ${ampm}`;
-  };
-
-  const renderJoinPodScreen = () => (
-    <ScrollView style={styles.content}>
-      <View style={styles.joinContainer}>
-        <MessageCircle size={60} color="#8b5cf6" />
-        <Text style={styles.joinTitle}>Join a Community Pod</Text>
-        <Text style={styles.joinSubtitle}>
-          Connect with 3-5 others in a safe, temporary space
-        </Text>
-
-        {/* Question 1: Struggle */}
-        <View style={styles.questionSection}>
-          <Text style={styles.questionLabel}>What brings you here today?</Text>
-          <View style={styles.optionButtons}>
-            {['Focus & Motivation', 'Overwhelm', 'Anxiety', 'Loneliness'].map(option => (
-              <TouchableOpacity
-                key={option}
-                style={[styles.optionButton, struggle === option && styles.optionButtonActive]}
-                onPress={() => setStruggle(option)}
-              >
-                <Text style={[styles.optionButtonText, struggle === option && styles.optionButtonTextActive]}>
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Question 2: Support Style */}
-        <View style={styles.questionSection}>
-          <Text style={styles.questionLabel}>What kind of support helps you most?</Text>
-          <View style={styles.optionButtons}>
-            {['Just listening', 'Advice & tips', 'Shared experiences'].map(option => (
-              <TouchableOpacity
-                key={option}
-                style={[styles.optionButton, supportStyle === option && styles.optionButtonActive]}
-                onPress={() => setSupportStyle(option)}
-              >
-                <Text style={[styles.optionButtonText, supportStyle === option && styles.optionButtonTextActive]}>
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Question 3: Duration */}
-        <View style={styles.questionSection}>
-          <Text style={styles.questionLabel}>How long would you like this pod to last?</Text>
-          <View style={styles.optionButtons}>
-            {[
-              { label: '24 hours', value: '24h' },
-              { label: '7 days', value: '7d' },
-            ].map(option => (
-              <TouchableOpacity
-                key={option.value}
-                style={[styles.optionButton, duration === option.value && styles.optionButtonActive]}
-                onPress={() => setDuration(option.value)}
-              >
-                <Text style={[styles.optionButtonText, duration === option.value && styles.optionButtonTextActive]}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.joinButton, (!struggle || !supportStyle || !duration) && styles.joinButtonDisabled]}
-          onPress={handleJoinPod}
-          disabled={!struggle || !supportStyle || !duration || joining}
-        >
-          <Text style={styles.joinButtonText}>
-            {joining ? 'Finding your pod...' : 'Join a Pod'}
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.privacyNote}>
-          💙 Anonymous • Safe space • No judgment
-        </Text>
-      </View>
-    </ScrollView>
-  );
-
-  const renderPodChatScreen = () => {
-    if (!currentPod) return null;
-
-    const expired = isPodExpired(currentPod);
-
+  if (pod) {
+    const podMsgs = msgs[pod.id] || [];
     return (
-      <KeyboardAvoidingView
-        style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* Pod Header */}
-        <View style={styles.podHeader}>
-          <View style={styles.podHeaderInfo}>
-            <Text style={styles.podHeaderTitle}>Your Pod</Text>
-            <Text style={styles.podHeaderSubtitle}>
-              {currentPod.memberCount} {currentPod.memberCount === 1 ? 'person' : 'people'} • {currentPod.struggle}
-            </Text>
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <View style={styles.tintBand} pointerEvents="none" />
+        <View style={styles.chatHeader}>
+          <Pressable onPress={() => setActivePod(null)} style={[styles.iconBtn, { backgroundColor: sage.surface }]} hitSlop={6}>
+            <Text style={styles.backArrow}>‹</Text>
+          </Pressable>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.chatTitle} numberOfLines={1}>{pod.name}</Text>
+            <Text style={text.meta}>{pod.count} here now</Text>
           </View>
-          <TouchableOpacity onPress={handleLeavePod} style={styles.leaveButton}>
-            <LogOut size={20} color="#ef4444" />
-          </TouchableOpacity>
+          <Text style={styles.expiryPill}>{pod.expiry === '24h' ? 'closes in 9h' : 'closes in 4d'}</Text>
         </View>
 
-        {/* Messages */}
-        <ScrollView
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {messages.map((msg) => {
-            const isOwnMessage = msg.type === 'user' && msg.userId === currentUserId;
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
+            <Text style={styles.privacyNote}>Names are hidden. Nothing is saved after the pod closes.</Text>
+            {podMsgs.map((m) => {
+              const mine = m.from === 'u';
+              return (
+                <View key={m.id} style={[styles.row, { justifyContent: mine ? 'flex-end' : 'flex-start' }]}>
+                  <View style={{ maxWidth: '80%' }}>
+                    <Text style={[styles.who, { textAlign: mine ? 'right' : 'left' }]}>{m.who}</Text>
+                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                      <Text style={[text.message, { fontSize: 14, color: mine ? sage.onPrimary : sage.fgBody }]}>{m.text}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
 
-            return (
-              <View
-                key={msg.id}
-                style={[
-                  styles.messageItem,
-                  // System messages - center
-                  msg.type === 'system' && styles.systemMessage,
-                  // User messages - check if own
-                  msg.type === 'user' && {
-                    alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
-                    backgroundColor: isOwnMessage ? '#8b5cf6' : getUserColor(msg.userId || ''),
-                  }
-                ]}
-              >
-                <Text style={[
-                  styles.messageText,
-                  msg.type === 'system' && styles.systemMessageText,
-                  // White text for own messages (purple background)
-                  msg.type === 'user' && isOwnMessage && { color: '#fff' }
-                ]}>
-                  {msg.text}
-                </Text>
-                {msg.type === 'user' && msg.createdAt && (
-                  <Text style={[
-                    styles.messageTime,
-                    // Lighter timestamp color for own messages
-                    isOwnMessage && { color: '#e9d5ff' }
-                  ]}>
-                    {formatTimestamp(msg.createdAt)}
-                  </Text>
-                )}
-              </View>
-            );
-          })}
-        </ScrollView>
-
-        {/* Input Area */}
-        {expired ? (
-          <View style={styles.expiredNotice}>
-            <Text style={styles.expiredText}>This pod has ended 💙</Text>
-            <TouchableOpacity
-              style={styles.newPodButton}
-              onPress={async () => {
-                // Leave the expired pod and clear state
-                try {
-                  if (currentPod) {
-                    await leavePod(currentPod.id);
-                  }
-                } catch (error) {
-                  console.log('Error leaving expired pod:', error);
-                }
-                setCurrentPod(null);
-                setMessages([]);
-              }}
-            >
-              <Text style={styles.newPodButtonText}>Join a new pod</Text>
-            </TouchableOpacity>
+          <View style={styles.footer}>
+            <View style={styles.inputBar}>
+              <TextInput value={draft} onChangeText={setDraft} placeholder="Share with the pod" placeholderTextColor={sage.fgFaint} style={styles.input} multiline maxLength={500} onSubmitEditing={send} />
+              <Pressable onPress={send} disabled={!draft.trim()} style={[styles.sendBtn, !draft.trim() && { opacity: 0.5 }]} hitSlop={6}>
+                <Send size={18} color={sage.onPrimary} strokeWidth={2.5} />
+              </Pressable>
+            </View>
           </View>
-        ) : (
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              value={messageText}
-              onChangeText={setMessageText}
-              placeholder="Share your thoughts..."
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              style={[styles.sendButton, !messageText.trim() && styles.sendButtonDisabled]}
-              onPress={handleSendMessage}
-              disabled={!messageText.trim()}
-            >
-              <Send size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        )}
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     );
-  };
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.headerContainer}>
-        <Text style={styles.title}>Pods</Text>
-        <Text style={styles.subtitle}>Connect and share with others</Text>
-      </View>
-
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <View style={styles.tintBand} pointerEvents="none" />
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={{ paddingVertical: 8, paddingBottom: 16 }}>
+          <Text style={text.title}>Pods</Text>
+          <Text style={[text.body, { marginTop: 6, maxWidth: 250 }]}>Small anonymous rooms. They close on their own, so nothing lingers.</Text>
         </View>
-      ) : currentPod ? (
-        renderPodChatScreen()
-      ) : (
-        renderJoinPodScreen()
-      )}
+
+        {pods.map((p) => {
+          const full = p.count.startsWith('5 of 5') && !p.joined;
+          return (
+            <View key={p.id} style={styles.podCard}>
+              <View style={[styles.accent, { backgroundColor: p.accent }]} />
+              <View style={styles.podTop}>
+                <Text style={[text.h2, { flex: 1 }]}>{p.name}</Text>
+                <Text style={styles.podExpiry}>{p.expiry}</Text>
+              </View>
+              <Text style={[text.body, { marginTop: 7, marginBottom: 14 }]}>{p.blurb}</Text>
+              <View style={styles.podFoot}>
+                <View style={{ flexDirection: 'row' }}>
+                  {p.seats.map((bg, i) => (
+                    <View key={i} style={[styles.seat, { backgroundColor: bg, marginLeft: i === 0 ? 0 : -7 }]} />
+                  ))}
+                </View>
+                <Text style={[text.meta, { marginLeft: 4 }]}>{p.count}</Text>
+                <Pressable
+                  onPress={() => !full && open(p.id)}
+                  disabled={full}
+                  style={[styles.joinBtn, p.joined ? { backgroundColor: sage.primary } : { backgroundColor: sage.fillGreenAlt }, full && { opacity: 0.5 }]}
+                >
+                  <Text style={{ fontFamily: font.heading, fontSize: 13, color: p.joined ? sage.onPrimary : sage.primaryInk }}>
+                    {p.joined ? 'Open' : full ? 'Full' : 'Join'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  headerContainer: {
-    backgroundColor: 'rgba(139, 92, 246, 0.85)',
-    padding: 24,
-    paddingTop: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  content: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 12,
-  },
-  chatContainer: {
-    flex: 1,
-  },
-  messagesContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  messagesContent: {
-    padding: 16,
-    gap: 12,
-  },
-  messageItem: {
-    backgroundColor: '#f3f4f6',
-    padding: 12,
-    borderRadius: 12,
-    maxWidth: '80%',
-    alignSelf: 'flex-start',
-  },
-  systemMessage: {
-    backgroundColor: '#f8f4ff',
-    alignSelf: 'center',
-    maxWidth: '90%',
-  },
-  messageText: {
-    fontSize: 15,
-    color: '#111',
-    lineHeight: 20,
-  },
-  systemMessageText: {
-    color: '#8b5cf6',
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  messageTime: {
-    fontSize: 11,
-    color: '#999',
-    marginTop: 4,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 12,
-    paddingBottom: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
-    backgroundColor: '#fff',
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    maxHeight: 100,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#8b5cf6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#d1d5db',
-  },
-  joinContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  joinTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111',
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  joinSubtitle: {
-    fontSize: 15,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 22,
-  },
-  questionSection: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  questionLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 12,
-  },
-  optionButtons: {
-    gap: 8,
-  },
-  optionButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: '#f3f4f6',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  optionButtonActive: {
-    backgroundColor: '#f3e8ff',
-    borderColor: '#8b5cf6',
-  },
-  optionButtonText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  optionButtonTextActive: {
-    color: '#8b5cf6',
-    fontWeight: '600',
-  },
-  joinButton: {
-    backgroundColor: '#8b5cf6',
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    marginTop: 16,
-    width: '100%',
-  },
-  joinButtonDisabled: {
-    backgroundColor: '#d1d5db',
-  },
-  joinButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  privacyNote: {
-    fontSize: 13,
-    color: '#8b5cf6',
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  podHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    backgroundColor: '#f8f4ff',
-  },
-  podHeaderInfo: {
-    flex: 1,
-  },
-  podHeaderTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111',
-  },
-  podHeaderSubtitle: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
-  },
-  leaveButton: {
-    padding: 8,
-  },
-  expiredNotice: {
-    padding: 20,
-    paddingBottom: 12,
-    backgroundColor: '#f8f4ff',
-    borderTopWidth: 1,
-    borderTopColor: '#e9d5ff',
-    alignItems: 'center',
-  },
-  expiredText: {
-    fontSize: 16,
-    color: '#8b5cf6',
-    marginBottom: 12,
-  },
-  newPodButton: {
-    backgroundColor: '#8b5cf6',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-  },
-  newPodButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-  },
+  screen: { flex: 1, backgroundColor: sage.bg },
+  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 180, backgroundColor: sage.bgTintTop, opacity: 0.45 },
+  scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
+
+  podCard: { backgroundColor: sage.surface, borderRadius: radius.card, padding: 18, marginBottom: 12, position: 'relative', overflow: 'hidden', ...shadow.card, ...curve },
+  accent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
+  podTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
+  podExpiry: { fontFamily: font.bodySemi, fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase', color: sage.primaryInk, backgroundColor: sage.fillGreenAlt, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, overflow: 'hidden' },
+  podFoot: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  seat: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: sage.surface },
+  joinBtn: { marginLeft: 'auto', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 20, ...curve },
+
+  // chat
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14 },
+  iconBtn: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', ...shadow.soft, ...curve },
+  backArrow: { fontFamily: font.headingBold, fontSize: 22, color: sage.fgSecondary, marginTop: -3 },
+  chatTitle: { fontFamily: font.heading, fontSize: 16, color: sage.fgBody },
+  expiryPill: { fontFamily: font.bodySemi, fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase', color: sage.clay, backgroundColor: sage.clayFill, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden' },
+
+  messages: { padding: 20, paddingTop: 4, gap: 11 },
+  privacyNote: { fontFamily: font.body, fontSize: 11.5, color: sage.fgFaint, textAlign: 'center', paddingVertical: 6 },
+  row: { flexDirection: 'row' },
+  who: { fontFamily: font.bodySemi, fontSize: 11, color: sage.fgFaint, marginBottom: 4, marginHorizontal: 6 },
+  bubble: { paddingVertical: 12, paddingHorizontal: 15, ...shadow.soft },
+  bubbleMine: { backgroundColor: sage.primary, borderRadius: 20, borderBottomRightRadius: 6 },
+  bubbleTheirs: { backgroundColor: sage.surface, borderRadius: 20, borderBottomLeftRadius: 6 },
+
+  footer: { paddingHorizontal: 20, paddingBottom: 14, paddingTop: 4 },
+  inputBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: sage.surface, borderRadius: 22, paddingVertical: 8, paddingLeft: 18, paddingRight: 8, ...shadow.card, ...curve },
+  input: { flex: 1, fontFamily: font.body, fontSize: 14.5, color: sage.fgBody, maxHeight: 100, paddingVertical: 2 },
+  sendBtn: { width: 40, height: 40, borderRadius: 15, backgroundColor: sage.primary, alignItems: 'center', justifyContent: 'center', ...curve },
 });

@@ -1,30 +1,15 @@
 import { Tabs } from 'expo-router';
 import { Eye, Heart, Home, MessageCircle, Users } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fontFamily, hairline, palette } from '@/theme/tokens';
-
-const c = palette.light;
+import { font, sage } from '@/theme/sage';
 
 /**
- * Tab bar.
+ * Tab bar — sage redesign.
  *
- * Three deliberate departures from what was here before, each fixing a real
- * bug rather than a style preference:
- *
- * 1. **Not `position: 'absolute'`.** An absolute tab bar floats over the
- *    content without reserving any layout space, so every screen's last
- *    element sat underneath it. Laid out in flow, the content box simply ends
- *    where the tab bar begins and nothing can be clipped.
- *
- * 2. **Height includes the safe-area inset.** React Navigation adds the bottom
- *    inset to the tab bar automatically — but only if you do not hard-code
- *    `height`. The previous `height: 68` overrode that, which is why the
- *    Android gesture bar was drawn on top of the tabs. Setting
- *    `56 + insets.bottom` with matching `paddingBottom` puts the controls
- *    above the system bar and lets the bar sit in the padding.
- *
- * 3. **Mono labels in the paper palette.** The bar was still `#09090BF0` in
- *    Nunito — a black strip under a warm-paper app.
+ * A soft white bar with rounded top corners floating over the pale paper
+ * shell, Quicksand labels, and the active tab tinted with the primary green.
+ * Height still includes the safe-area inset (letting React Navigation manage
+ * it via paddingBottom) so the Android gesture bar never overlaps the controls.
  */
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -33,26 +18,28 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: c.fg,
-        tabBarInactiveTintColor: c.fgSecondary,
-        // A hairline, matching every other separator in the app.
+        tabBarActiveTintColor: sage.primaryDeep,
+        tabBarInactiveTintColor: sage.fgFaint,
         tabBarStyle: {
-          backgroundColor: c.bg,
-          borderTopColor: c.rule,
-          borderTopWidth: hairline,
-          elevation: 0,
-          height: 56 + insets.bottom,
+          backgroundColor: sage.surface,
+          borderTopWidth: 0,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          elevation: 12,
+          shadowColor: '#587869',
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.09,
+          shadowRadius: 20,
+          height: 60 + insets.bottom,
           paddingBottom: insets.bottom,
-          paddingTop: 6,
+          paddingTop: 8,
         },
         tabBarLabelStyle: {
-          fontFamily: fontFamily.monoMedium,
-          fontSize: 9,
-          letterSpacing: 1.08, // 0.12em
-          textTransform: 'uppercase',
+          fontFamily: font.heading,
+          fontSize: 10,
           marginTop: 2,
         },
-        sceneStyle: { backgroundColor: c.bg },
+        sceneStyle: { backgroundColor: sage.bg },
       }}
     >
       {/* The five tabs: Today · Life · Mentor · Pods · Focus */}

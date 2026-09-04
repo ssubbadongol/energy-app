@@ -11,6 +11,18 @@ import {
   InstrumentSerif_400Regular,
   InstrumentSerif_400Regular_Italic,
 } from '@expo-google-fonts/instrument-serif';
+import {
+  Quicksand_400Regular,
+  Quicksand_500Medium,
+  Quicksand_600SemiBold,
+  Quicksand_700Bold,
+} from '@expo-google-fonts/quicksand';
+import {
+  NunitoSans_300Light,
+  NunitoSans_400Regular,
+  NunitoSans_600SemiBold,
+  NunitoSans_700Bold,
+} from '@expo-google-fonts/nunito-sans';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -19,13 +31,13 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { handleNotificationResponse, setupNotifications } from './(tabs)/notificationService';
-import { palette } from '@/theme/tokens';
+import { sage } from '@/theme/sage';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-const paper = palette.light;
+const paper = { bg: sage.bg, fg: sage.fg, rule: sage.ruleStrong, accent: sage.primary };
 
 /**
  * React Navigation paints its own background behind every screen and behind
@@ -56,7 +68,16 @@ export default function RootLayout() {
     IBMPlexMono_400Regular,
     IBMPlexMono_500Medium,
     IBMPlexMono_600SemiBold,
-    // Retained only for the screens not yet migrated off the old system.
+    // Sage redesign: Quicksand (headings/UI) + Nunito Sans (body).
+    Quicksand_400Regular,
+    Quicksand_500Medium,
+    Quicksand_600SemiBold,
+    Quicksand_700Bold,
+    NunitoSans_300Light,
+    NunitoSans_400Regular,
+    NunitoSans_600SemiBold,
+    NunitoSans_700Bold,
+    // Retained only for the off-tab legacy task screens.
     'Nunito-Regular':   require('../assets/fonts/nunito/Nunito-Regular.ttf'),
     'Nunito-Medium':    require('../assets/fonts/nunito/Nunito-Medium.ttf'),
     'Nunito-SemiBold':  require('../assets/fonts/nunito/Nunito-SemiBold.ttf'),
