@@ -3,33 +3,35 @@ import { Animated, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 // Natural size of assets/background/bg-screen.png (853 × 1844).
 const IMG_ASPECT = 1844 / 853; // height / width
-const PARALLAX = 18; // subtle drift; kept small so the bottom stays in view
+const PARALLAX = 64; // how far the photo drifts down over a full scroll
 
 /**
  * Full-bleed nature backdrop from the Claude Design handoff.
  *
- * The photo is **anchored to the bottom** and sized to cover the screen width,
- * so the foreground (the important part of the scene) is always visible; only
- * the sky at the top is cropped on shorter screens. A light translucent paper
- * wash keeps cards and text readable while letting the scene show through.
+ * The photo is anchored to the bottom and sized to cover the screen width, so
+ * the foreground/character of the scene is visible at rest; only the sky at the
+ * top is cropped on shorter screens. A light paper wash keeps cards readable.
  *
- * When a scroll `Animated.Value` is passed, the photo drifts gently as the
- * user scrolls. The drift is small and the image carries top overscan, so the
- * bottom of the scene stays on screen at rest.
+ * Parallax: the image carries `PARALLAX` px of top overscan, and drifts DOWN by
+ * that amount as the user scrolls (the mockup's effect). Because the drift is
+ * absorbed by the overscan, there is never a gap. Driven on the JS thread
+ * (useNativeDriver:false in the screens) so it also animates on web.
  */
 export function SageBackground({ scrollY }: { scrollY?: Animated.Value }) {
   const { width: W, height: Hs } = useWindowDimensions();
 
-  // Cover the screen width; grow to cover height if needed. Undistorted.
-  let imgW = W;
-  let imgH = Math.round(W * IMG_ASPECT);
-  if (imgH < Hs + PARALLAX) {
-    imgH = Hs + PARALLAX;
-    imgW = Math.round(imgH / IMG_ASPECT);
+  // Height = screen + overscan; width follows aspect. If that is narrower than
+  // the screen, widen to cover (sides crop instead).
+  let imgH = Hs + PARALLAX;
+  let imgW = imgH / IMG_ASPECT;
+  if (imgW < W) {
+    imgW = W;
+    imgH = Math.round(W * IMG_ASPECT);
   }
+  const overscan = Math.max(0, imgH - Hs);
 
   const translateY = scrollY
-    ? scrollY.interpolate({ inputRange: [0, 500], outputRange: [0, PARALLAX], extrapolate: 'clamp' })
+    ? scrollY.interpolate({ inputRange: [0, 420], outputRange: [0, overscan], extrapolate: 'clamp' })
     : 0;
 
   return (

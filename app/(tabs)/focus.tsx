@@ -61,7 +61,7 @@ export default function FocusScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
       >
         <View style={styles.header}>
           <Text style={text.title}>Focus</Text>
