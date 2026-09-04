@@ -1,47 +1,28 @@
+import { useFocusEffect } from 'expo-router';
 import { Check, Minus, Pencil, Plus } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  addLifeTask,
+  deleteLifeTask,
+  getLifeTasks,
+  initializeLifeTasks,
+  type LifeTask,
+  type TimeOfDay,
+  toggleLifeTaskCompleted,
+  toggleLifeTaskEnabled,
+  updateLifeTask,
+} from '../lifeTaskStorage';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
-/* ------------------------------------------------------------------ *
- * Local placeholder state (UI-first — wire to lifeTaskStorage later)
- * ------------------------------------------------------------------ */
-
-type Section = 'morning' | 'midday' | 'evening';
-
-interface LifeItem {
-  id: string;
-  sec: Section;
-  emoji: string;
-  name: string;
-  start: number;
-  end: number;
-  on: boolean;
-  reps: number;
-  count: number;
-}
-
-const SECTIONS: { key: Section; title: string; hours: string }[] = [
+const SECTIONS: { key: TimeOfDay; title: string; hours: string }[] = [
   { key: 'morning', title: 'Morning Basics', hours: '6–10 AM' },
   { key: 'midday', title: 'Midday Check-in', hours: '12–3 PM' },
   { key: 'evening', title: 'Evening Wind-down', hours: '5–11 PM' },
 ];
 
 const EMOJIS = ['💧', '🍽', '🚶', '🏃', '😴', '🚿', '💊', '🌱', '🧹', '📚'];
-
-const SEED: LifeItem[] = [
-  { id: 'l1', sec: 'morning', emoji: '🚿', name: 'Shower', start: 6, end: 10, on: true, reps: 1, count: 0 },
-  { id: 'l2', sec: 'morning', emoji: '🍳', name: 'Breakfast', start: 7, end: 10, on: true, reps: 1, count: 0 },
-  { id: 'l3', sec: 'morning', emoji: '💊', name: 'Take meds', start: 8, end: 9, on: true, reps: 2, count: 0 },
-  { id: 'l4', sec: 'morning', emoji: '💧', name: 'Drink water', start: 6, end: 12, on: true, reps: 3, count: 1 },
-  { id: 'l5', sec: 'midday', emoji: '🍽', name: 'Eat lunch', start: 12, end: 14, on: true, reps: 1, count: 0 },
-  { id: 'l6', sec: 'midday', emoji: '💧', name: 'Drink water', start: 12, end: 17, on: true, reps: 3, count: 0 },
-  { id: 'l7', sec: 'midday', emoji: '🚶', name: 'Take a walk', start: 13, end: 15, on: false, reps: 1, count: 0 },
-  { id: 'l8', sec: 'evening', emoji: '🏃', name: 'Exercise', start: 17, end: 19, on: false, reps: 1, count: 0 },
-  { id: 'l9', sec: 'evening', emoji: '💧', name: 'Water plants', start: 18, end: 19, on: true, reps: 1, count: 0 },
-  { id: 'l10', sec: 'evening', emoji: '😴', name: 'Wind down', start: 21, end: 23, on: true, reps: 1, count: 0 },
-];
 
 const hourLabel = (h: number) => {
   const hh = ((h % 24) + 24) % 24;
@@ -56,44 +37,82 @@ const windowLabel = (a: number, b: number) => {
   return `${sa}–${sb}`;
 };
 
-const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as Section, start: 9, end: 11, reps: 1 };
+const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as TimeOfDay, start: 9, end: 11, reps: 1 };
 
 export default function LifeScreen() {
-  const [items, setItems] = useState<LifeItem[]>(SEED);
-  const [setup, setSetup] = useState(true);
+  const [items, setItems] = useState<LifeTask[]>([]);
+  const [setup, setSetup] = useState(false);
+  const [ready, setReady] = useState(false);
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [windowTouched, setWindowTouched] = useState(false);
 
-  const enabled = items.filter((i) => i.on);
-  const lifeDone = enabled.filter((i) => i.count >= i.reps).length;
+  const refresh = useCallback(() => setItems([...getLifeTasks()]), []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      initializeLifeTasks().then((loaded) => {
+        if (!alive) return;
+        setItems([...loaded]);
+        // First run (nothing enabled yet) opens straight into setup.
+        if (!ready) {
+          setSetup(loaded.every((i) => !i.enabled));
+          setReady(true);
+        }
+      });
+      return () => { alive = false; };
+    }, [ready]),
+  );
+
+  const enabled = items.filter((i) => i.enabled);
+  const lifeDone = enabled.filter((i) => i.completed).length;
   const lifePct = enabled.length ? Math.round((lifeDone / enabled.length) * 100) : 0;
 
-  const toggleOn = (id: string) => setItems((xs) => xs.map((x) => (x.id === id ? { ...x, on: !x.on } : x)));
-  const tap = (id: string) => setItems((xs) => xs.map((x) => (x.id === id ? { ...x, count: x.count >= x.reps ? 0 : x.count + 1 } : x)));
+  const toggleOn = async (id: string) => { await toggleLifeTaskEnabled(id); refresh(); };
+  const tap = async (id: string) => { await toggleLifeTaskCompleted(id); refresh(); };
 
-  const editItem = (i: LifeItem) => {
+  const editItem = (i: LifeTask) => {
     setEditingId(i.id);
-    setDraft({ name: i.name, emoji: i.emoji, sec: i.sec, start: i.start, end: i.end, reps: i.reps });
+    setWindowTouched(false);
+    setDraft({ name: i.name, emoji: i.emoji, sec: i.timeOfDay, start: 9, end: 11, reps: i.repeats && i.repeats > 1 ? i.repeats : 1 });
   };
-  const cancelEdit = () => { setEditingId(null); setDraft({ ...EMPTY_DRAFT }); };
-  const removeItem = () => {
+  const cancelEdit = () => { setEditingId(null); setWindowTouched(false); setDraft({ ...EMPTY_DRAFT }); };
+  const removeItem = async () => {
     if (!editingId) return;
-    setItems((xs) => xs.filter((x) => x.id !== editingId));
+    await deleteLifeTask(editingId);
     cancelEdit();
+    refresh();
   };
-  const saveItem = () => {
+  const saveItem = async () => {
     if (!draft.name.trim()) return;
     if (editingId) {
-      setItems((xs) => xs.map((x) => (x.id === editingId ? { ...x, name: draft.name.trim(), emoji: draft.emoji, sec: draft.sec, start: draft.start, end: draft.end, reps: draft.reps, count: Math.min(x.count, draft.reps) } : x)));
+      const existing = items.find((i) => i.id === editingId);
+      await updateLifeTask(editingId, {
+        name: draft.name.trim(),
+        emoji: draft.emoji,
+        timeOfDay: draft.sec,
+        timeWindow: windowTouched || !existing ? windowLabel(draft.start, draft.end) : existing.timeWindow,
+        repeats: draft.reps > 1 ? draft.reps : undefined,
+      });
       cancelEdit();
     } else {
-      setItems((xs) => [...xs, { id: 'c' + Date.now(), sec: draft.sec, emoji: draft.emoji, name: draft.name.trim(), start: draft.start, end: draft.end, on: true, reps: draft.reps, count: 0 }]);
+      await addLifeTask({
+        emoji: draft.emoji,
+        name: draft.name.trim(),
+        timeWindow: windowLabel(draft.start, draft.end),
+        timeOfDay: draft.sec,
+        enabled: true,
+        isDefault: false,
+        repeats: draft.reps > 1 ? draft.reps : undefined,
+      });
       setDraft({ ...EMPTY_DRAFT, sec: draft.sec });
     }
+    refresh();
   };
 
-  const setStart = (v: number) => setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v + 1, d.end) }));
-  const setEnd = (v: number) => setDraft((d) => ({ ...d, end: Math.max(1, Math.min(24, v)), start: Math.min(v - 1, d.start) }));
+  const setStart = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v + 1, d.end) })); };
+  const setEnd = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, end: Math.max(1, Math.min(24, v)), start: Math.min(v - 1, d.start) })); };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -106,37 +125,29 @@ export default function LifeScreen() {
               <Text style={[text.body, { marginTop: 6, maxWidth: 260 }]}>Pick which apply to you. Everything else stays off — you can change this any time.</Text>
             </View>
 
-            {/* toggle list */}
             <View style={[styles.card, { paddingVertical: 8, paddingHorizontal: 16 }]}>
               {items.map((i, idx) => (
                 <View key={i.id} style={[styles.setupRow, idx === items.length - 1 && { borderBottomWidth: 0 }]}>
                   <Text style={styles.emoji}>{i.emoji}</Text>
-                  <View style={{ flex: 1, minWidth: 0, opacity: i.on ? 1 : 0.5 }}>
+                  <View style={{ flex: 1, minWidth: 0, opacity: i.enabled ? 1 : 0.5 }}>
                     <Text style={styles.setupName}>{i.name}</Text>
-                    <Text style={styles.setupWindow}>{i.reps > 1 ? `${windowLabel(i.start, i.end)} · ${i.reps}× a day` : windowLabel(i.start, i.end)}</Text>
+                    <Text style={styles.setupWindow}>{i.repeats && i.repeats > 1 ? `${i.timeWindow} · ${i.repeats}× a day` : i.timeWindow}</Text>
                   </View>
                   <Pressable onPress={() => editItem(i)} style={[styles.editBtn, editingId === i.id && { backgroundColor: sage.fillGreen }]} hitSlop={4}>
                     <Pencil size={13} color={editingId === i.id ? sage.primaryDeep : sage.fgFaint} strokeWidth={2} />
                   </Pressable>
-                  <Pressable onPress={() => toggleOn(i.id)} style={[styles.track, { backgroundColor: i.on ? sage.leaf : sage.track, alignItems: i.on ? 'flex-end' : 'flex-start' }]}>
+                  <Pressable onPress={() => toggleOn(i.id)} style={[styles.track, { backgroundColor: i.enabled ? sage.leaf : sage.track, alignItems: i.enabled ? 'flex-end' : 'flex-start' }]}>
                     <View style={styles.knob} />
                   </Pressable>
                 </View>
               ))}
             </View>
 
-            {/* add / edit form */}
             <View style={[styles.card, { marginTop: 14 }]}>
               <Text style={[text.labelFaint, { marginBottom: 12 }]}>{editingId ? 'Edit routine item' : 'Add your own'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <Text style={styles.emojiLg}>{draft.emoji}</Text>
-                <TextInput
-                  value={draft.name}
-                  onChangeText={(name) => setDraft((d) => ({ ...d, name }))}
-                  placeholder="e.g. Stretch by the window"
-                  placeholderTextColor={sage.fgFaint}
-                  style={styles.input}
-                />
+                <TextInput value={draft.name} onChangeText={(name) => setDraft((d) => ({ ...d, name }))} placeholder="e.g. Stretch by the window" placeholderTextColor={sage.fgFaint} style={styles.input} />
               </View>
 
               <View style={styles.emojiWrap}>
@@ -158,11 +169,10 @@ export default function LifeScreen() {
                 })}
               </View>
 
-              {/* time window */}
               <View style={{ marginTop: 18 }}>
                 <View style={styles.stepperRow}>
                   <Text style={styles.stepperLabel}>Time window</Text>
-                  <Text style={styles.stepperValue}>{windowLabel(draft.start, draft.end)}</Text>
+                  <Text style={styles.stepperValue}>{editingId && !windowTouched ? (items.find((i) => i.id === editingId)?.timeWindow ?? windowLabel(draft.start, draft.end)) : windowLabel(draft.start, draft.end)}</Text>
                 </View>
                 <View style={styles.stepper}>
                   <Text style={styles.stepperCap}>starts</Text>
@@ -172,7 +182,6 @@ export default function LifeScreen() {
                 </View>
               </View>
 
-              {/* reps */}
               <View style={styles.repsRow}>
                 <Text style={styles.stepperLabel}>Times a day</Text>
                 <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
@@ -216,8 +225,12 @@ export default function LifeScreen() {
               <View style={[styles.progressFill, { width: `${lifePct}%` }]} />
             </View>
 
+            {enabled.length === 0 && (
+              <View style={styles.empty}><Text style={styles.emptyText}>No routine yet. Tap Edit to pick what applies to you.</Text></View>
+            )}
+
             {SECTIONS.map((s) => {
-              const secItems = items.filter((i) => i.sec === s.key && i.on);
+              const secItems = items.filter((i) => i.timeOfDay === s.key && i.enabled);
               if (secItems.length === 0) return null;
               return (
                 <View key={s.key} style={{ marginBottom: 18 }}>
@@ -228,7 +241,8 @@ export default function LifeScreen() {
                   </View>
                   <View style={[styles.card, { paddingVertical: 6, paddingHorizontal: 16, marginBottom: 0 }]}>
                     {secItems.map((i, idx) => {
-                      const full = i.count >= i.reps;
+                      const reps = i.repeats && i.repeats > 1 ? i.repeats : 1;
+                      const full = i.completed;
                       return (
                         <Pressable key={i.id} onPress={() => tap(i.id)} style={[styles.dailyRow, idx === secItems.length - 1 && { borderBottomWidth: 0 }]}>
                           <View style={[styles.checkCircle, { borderColor: full ? sage.primary : sage.ruleStrong, backgroundColor: full ? sage.primary : sage.surface }]}>
@@ -237,11 +251,11 @@ export default function LifeScreen() {
                           <Text style={styles.emoji}>{i.emoji}</Text>
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[styles.dailyName, full && { color: sage.fgFaint, textDecorationLine: 'line-through' }]}>{i.name}</Text>
-                            <Text style={styles.setupWindow}>{windowLabel(i.start, i.end)}</Text>
+                            <Text style={styles.setupWindow}>{i.timeWindow}</Text>
                           </View>
                           <View style={{ flexDirection: 'row', gap: 5, alignItems: 'center' }}>
-                            {Array.from({ length: i.reps }).map((_, n) => (
-                              <View key={n} style={[styles.repDot, { backgroundColor: n < i.count ? sage.primary : sage.track }]} />
+                            {Array.from({ length: reps }).map((_, n) => (
+                              <View key={n} style={[styles.repDot, { backgroundColor: n < i.completedCount ? sage.primary : sage.track }]} />
                             ))}
                           </View>
                         </Pressable>
@@ -320,4 +334,7 @@ const styles = StyleSheet.create({
   checkCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   dailyName: { fontFamily: font.heading, fontSize: 14.5, color: sage.fgBody },
   repDot: { width: 9, height: 9, borderRadius: 4.5 },
+
+  empty: { backgroundColor: sage.surface, borderRadius: 20, padding: 22, alignItems: 'center', ...shadow.soft, ...curve, marginBottom: 14 },
+  emptyText: { fontFamily: font.body, fontSize: 13, color: sage.fgFaint, textAlign: 'center' },
 });

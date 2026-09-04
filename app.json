@@ -32,7 +32,13 @@
       [
         "expo-notifications",
         {
-          "color": "#AD8234"
+          "color": "#7fb096"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Soft Focus uses the front camera on-device to gauge your focus during a session. Video never leaves your phone."
         }
       ],
       [
@@ -41,9 +47,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#F5F0E6",
+          "backgroundColor": "#f7faf7",
           "dark": {
-            "backgroundColor": "#1D1916"
+            "backgroundColor": "#2e3b34"
           }
         }
       ],

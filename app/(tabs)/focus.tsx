@@ -1,3 +1,4 @@
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Camera } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -6,8 +7,11 @@ import Svg, { Line, Path } from 'react-native-svg';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 /* ------------------------------------------------------------------ *
- * UI-first: simulated focus telemetry. Wire to expo-camera / the
- * attention model in the second pass.
+ * Focus — real front camera preview, simulated attention telemetry.
+ *
+ * The camera feed is live (expo-camera). The focus % is a placeholder
+ * signal until an on-device attention model is wired in; the video never
+ * leaves the phone.
  * ------------------------------------------------------------------ */
 
 const SEED_HIST = [62, 68, 74, 71, 66, 70, 77, 81, 84, 80, 75, 72, 78, 83, 86, 84, 79, 74, 70, 73, 77, 80, 82, 78, 75, 79, 83, 85, 81, 78];
@@ -15,16 +19,17 @@ const W = 320;
 const H = 110;
 
 export default function FocusScreen() {
+  const [permission, requestPermission] = useCameraPermissions();
   const [running, setRunning] = useState(true);
   const [hist, setHist] = useState<number[]>(SEED_HIST);
   const [focusPct, setFocusPct] = useState(78);
-  const [elapsed, setElapsed] = useState(742);
-  const [drift, setDrift] = useState(3);
+  const [elapsed, setElapsed] = useState(0);
+  const [drift, setDrift] = useState(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (!running) return;
     timer.current = setInterval(() => {
-      if (!running) return;
       setHist((h) => {
         const last = h[h.length - 1];
         const next = Math.max(28, Math.min(97, Math.round(last + (Math.random() * 22 - 11))));
@@ -43,7 +48,9 @@ export default function FocusScreen() {
   const avg = Math.round(hist.reduce((a, b) => a + b, 0) / hist.length);
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
-  const deepMin = Math.max(1, Math.round((elapsed / 60) * 0.72));
+  const deepMin = Math.max(0, Math.round((elapsed / 60) * 0.72));
+
+  const granted = permission?.granted;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -54,15 +61,31 @@ export default function FocusScreen() {
           <Text style={text.body}>{mm}:{ss} this session</Text>
         </View>
 
-        {/* camera feed placeholder */}
+        {/* camera feed */}
         <View style={styles.feed}>
-          <View style={styles.feedCenter}>
-            <Camera size={30} color={sage.leafSoft} strokeWidth={1.5} />
-            <Text style={styles.feedLabel}>front camera feed</Text>
-          </View>
+          {granted && running ? (
+            <CameraView style={StyleSheet.absoluteFill} facing="front" />
+          ) : (
+            <View style={styles.feedCenter}>
+              <Camera size={30} color={sage.leafSoft} strokeWidth={1.5} />
+              {granted ? (
+                <Text style={styles.feedLabel}>paused</Text>
+              ) : (
+                <>
+                  <Text style={styles.feedLabel}>{permission ? 'camera access needed' : 'checking camera…'}</Text>
+                  {permission && !permission.granted && (
+                    <Pressable onPress={requestPermission} style={styles.permBtn}>
+                      <Text style={styles.permBtnText}>Enable camera</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+            </View>
+          )}
+
           <View style={styles.livePill}>
-            <View style={[styles.liveDot, { backgroundColor: running ? sage.leaf : sage.fgFaint }]} />
-            <Text style={styles.liveLabel}>{running ? 'Tracking' : 'Paused'}</Text>
+            <View style={[styles.liveDot, { backgroundColor: granted && running ? sage.leaf : sage.fgFaint }]} />
+            <Text style={styles.liveLabel}>{granted && running ? 'Tracking' : 'Paused'}</Text>
           </View>
           <View style={styles.focusBadge}>
             <Text style={styles.focusBadgeNum}>{focusPct}</Text>
@@ -119,6 +142,8 @@ const styles = StyleSheet.create({
   feed: { borderRadius: radius.cardLg, overflow: 'hidden', height: 210, backgroundColor: '#e0ebe4', ...shadow.card, ...curve },
   feedCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8 },
   feedLabel: { fontFamily: font.body, fontSize: 11, color: sage.fgSecondary, letterSpacing: 0.4 },
+  permBtn: { marginTop: 6, backgroundColor: sage.primary, borderRadius: 14, paddingVertical: 9, paddingHorizontal: 18, ...curve },
+  permBtnText: { fontFamily: font.heading, fontSize: 13, color: sage.onPrimary },
   livePill: { position: 'absolute', left: 14, top: 14, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(255,255,255,.86)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   liveDot: { width: 7, height: 7, borderRadius: 3.5 },
   liveLabel: { fontFamily: font.heading, fontSize: 11, color: sage.primaryDeep },

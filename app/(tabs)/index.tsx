@@ -1,51 +1,43 @@
+import { useFocusEffect } from 'expo-router';
 import { Check, Pencil, Plus, X } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+import {
+  addTask,
+  deleteTask,
+  getSharedTasks,
+  initializeTasks,
+  type Task,
+  toggleTaskCompletion,
+  updateTask,
+} from '../taskStorage';
 import { curve, energy, energyInsight, type EnergyKey, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 /* ------------------------------------------------------------------ *
- * Local placeholder state (UI-first — wire to taskStorage later)
+ * taskStorage uses energy 'high' | 'medium' | 'low'; the sage tokens
+ * use 'high' | 'mid' | 'low'. Convert at the boundary.
  * ------------------------------------------------------------------ */
 
-interface Task {
-  id: number;
-  title: string;
-  energy: EnergyKey;
-  meta: string;
-  done: boolean;
-  date: string;
-}
+const toTier = (e: Task['energy']): EnergyKey => (e === 'medium' ? 'mid' : e);
+const fromTier = (k: EnergyKey): Task['energy'] => (k === 'mid' ? 'medium' : k);
 
 const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const shiftDay = (n: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return iso(d);
-};
+const dayOf = (t: Task, today: string) => (t.dueDate ? t.dueDate.slice(0, 10) : today);
+const metaFor = (t: Task) => (t.time > 0 ? `~${t.time} min` : t.type && t.type !== 'Task' ? t.type : 'anytime');
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const SEED: Task[] = [
-  { id: 1, title: 'Read two pages of the seminar text', energy: 'low', meta: '~10 min', done: false, date: shiftDay(0) },
-  { id: 2, title: 'Email Dr. Okafor about the extension', energy: 'mid', meta: 'draft is ready', done: false, date: shiftDay(0) },
-  { id: 3, title: 'Fill the water bottle', energy: 'low', meta: 'anytime', done: true, date: shiftDay(0) },
-  { id: 4, title: 'Outline the stats problem set', energy: 'high', meta: '~40 min', done: false, date: shiftDay(0) },
-  { id: 5, title: 'Rewrite the lab intro', energy: 'high', meta: 'needs quiet', done: false, date: shiftDay(1) },
-  { id: 6, title: 'Return library books', energy: 'low', meta: 'on the way home', done: false, date: shiftDay(2) },
-];
-
 const FILTERS: ('All' | 'High' | 'Mid' | 'Low')[] = ['All', 'High', 'Mid', 'Low'];
 
 export default function TodayScreen() {
   const today = iso(new Date());
-  const [tasks, setTasks] = useState<Task[]>(SEED);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyKey>('mid');
   const [filter, setFilter] = useState<'All' | 'High' | 'Mid' | 'Low'>('All');
-  const [pinnedId, setPinnedId] = useState<number | null>(2);
+  const [pinnedId, setPinnedId] = useState<number | null>(null);
 
   // composer
   const [composing, setComposing] = useState(false);
@@ -58,44 +50,47 @@ export default function TodayScreen() {
   const [monthOffset, setMonthOffset] = useState(0);
   const [selected, setSelected] = useState(today);
 
-  const todays = tasks.filter((t) => t.date === today);
-  const inFilter = todays.filter((t) => filter === 'All' || energy[t.energy].label === filter);
-  const matched = inFilter.filter((t) => t.energy === selectedEnergy);
-  const rest = inFilter.filter((t) => t.energy !== selectedEnergy);
-  const done = todays.filter((t) => t.done).length;
+  const refresh = useCallback(() => setTasks([...getSharedTasks()]), []);
+
+  // Load persisted tasks whenever the tab gains focus.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      initializeTasks().then((loaded) => {
+        if (alive) setTasks([...loaded]);
+      });
+      return () => { alive = false; };
+    }, []),
+  );
+
+  const todays = tasks.filter((t) => dayOf(t, today) === today);
+  const inFilter = todays.filter((t) => filter === 'All' || energy[toTier(t.energy)].label === filter);
+  const matched = inFilter.filter((t) => toTier(t.energy) === selectedEnergy);
+  const rest = inFilter.filter((t) => toTier(t.energy) !== selectedEnergy);
+  const done = todays.filter((t) => t.completed).length;
   const pct = todays.length ? Math.round((done / todays.length) * 100) : 0;
 
-  const toggle = (id: number) => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
-  const remove = (id: number) => {
-    setTasks((ts) => ts.filter((t) => t.id !== id));
+  const toggle = async (id: number) => { await toggleTaskCompletion(id); refresh(); };
+  const remove = async (id: number) => {
+    await deleteTask(id);
     if (pinnedId === id) setPinnedId(null);
+    refresh();
   };
-  const startAdd = () => {
-    setComposing(true);
-    setEditingId(null);
-    setDraft('');
-    setDraftEnergy(selectedEnergy);
-  };
-  const startEdit = (t: Task) => {
-    setComposing(true);
-    setEditingId(t.id);
-    setDraft(t.title);
-    setDraftEnergy(t.energy);
-  };
-  const saveTask = () => {
-    const title = draft.trim();
-    if (!title) return;
+  const startAdd = () => { setComposing(true); setEditingId(null); setDraft(''); setDraftEnergy(selectedEnergy); };
+  const startEdit = (t: Task) => { setComposing(true); setEditingId(t.id); setDraft(t.name); setDraftEnergy(toTier(t.energy)); };
+  const saveTask = async () => {
+    const name = draft.trim();
+    if (!name) return;
     if (editingId) {
-      setTasks((ts) => ts.map((t) => (t.id === editingId ? { ...t, title, energy: draftEnergy } : t)));
+      await updateTask(editingId, { name, energy: fromTier(draftEnergy), priority: fromTier(draftEnergy) });
     } else {
-      setTasks((ts) => [...ts, { id: Date.now(), title, energy: draftEnergy, meta: 'just added', done: false, date: calendarOpen ? selected : today }]);
+      const date = calendarOpen ? selected : today;
+      await addTask({ name, energy: fromTier(draftEnergy), priority: fromTier(draftEnergy), time: 0, type: 'Task', completed: false, dueDate: `${date}T12:00:00` });
     }
-    setComposing(false);
-    setEditingId(null);
-    setDraft('');
+    setComposing(false); setEditingId(null); setDraft(''); refresh();
   };
 
-  const pinned = tasks.find((t) => t.id === pinnedId && !t.done);
+  const pinned = tasks.find((t) => t.id === pinnedId && !t.completed);
   const todayLabel = `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()]}, ${new Date().getDate()} ${MONTHS[new Date().getMonth()]}`;
 
   return (
@@ -107,7 +102,7 @@ export default function TodayScreen() {
           <View style={styles.pinnedDot} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.pinnedLabel}>Pinned</Text>
-            <Text style={styles.pinnedTitle} numberOfLines={1}>{pinned.title}</Text>
+            <Text style={styles.pinnedTitle} numberOfLines={1}>{pinned.name}</Text>
           </View>
           <Pressable onPress={() => toggle(pinned.id)} style={styles.pinnedBtn} hitSlop={6}>
             <Check size={15} color={sage.primaryDeep} strokeWidth={2.5} />
@@ -133,7 +128,6 @@ export default function TodayScreen() {
           />
         ) : (
           <>
-            {/* header */}
             <View style={styles.header}>
               <View>
                 <Text style={styles.dateLabel}>{todayLabel}</Text>
@@ -150,7 +144,6 @@ export default function TodayScreen() {
               </View>
             </View>
 
-            {/* energy */}
             <View style={styles.card}>
               <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
               <View style={styles.energyRow}>
@@ -167,7 +160,6 @@ export default function TodayScreen() {
               <Text style={styles.insight}>{energyInsight[selectedEnergy]}</Text>
             </View>
 
-            {/* progress */}
             <View style={[styles.card, styles.progressCard]}>
               <ProgressRing pct={pct} />
               <View style={{ flex: 1 }}>
@@ -177,7 +169,6 @@ export default function TodayScreen() {
               <Text style={styles.pctText}>{pct}%</Text>
             </View>
 
-            {/* filters */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ gap: 8 }}>
               {FILTERS.map((f) => {
                 const on = filter === f;
@@ -191,22 +182,20 @@ export default function TodayScreen() {
 
             {composing && <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, saveTask, onCancel: () => setComposing(false) }} />}
 
-            {/* matched */}
             {matched.length > 0 && (
               <>
                 <SectionRule label="Matched to your energy" />
                 <View style={{ gap: 10 }}>
-                  {matched.map((t) => <TaskCard key={t.id} task={t} onToggle={toggle} onEdit={startEdit} onRemove={remove} />)}
+                  {matched.map((t) => <TaskCard key={t.id} task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />)}
                 </View>
               </>
             )}
 
-            {/* rest */}
             {rest.length > 0 && (
               <>
                 <SectionRule label={matched.length ? 'Everything else' : 'All tasks'} />
                 <View style={{ gap: 10 }}>
-                  {rest.map((t) => <TaskCard key={t.id} task={t} onToggle={toggle} onEdit={startEdit} onRemove={remove} />)}
+                  {rest.map((t) => <TaskCard key={t.id} task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />)}
                 </View>
               </>
             )}
@@ -246,20 +235,24 @@ function SectionRule({ label }: { label: string }) {
   );
 }
 
-function TaskCard({ task, onToggle, onEdit, onRemove }: { task: Task; onToggle: (id: number) => void; onEdit: (t: Task) => void; onRemove: (id: number) => void }) {
-  const e = energy[task.energy];
+function TaskCard({ task, pinned, onToggle, onEdit, onRemove, onPin }: {
+  task: Task; pinned: boolean;
+  onToggle: (id: number) => void; onEdit: (t: Task) => void; onRemove: (id: number) => void; onPin: (id: number | null) => void;
+}) {
+  const e = energy[toTier(task.energy)];
   return (
     <View style={styles.taskCard}>
-      <Pressable onPress={() => onToggle(task.id)} style={[styles.checkbox, { borderColor: task.done ? sage.primary : sage.ruleStrong, backgroundColor: task.done ? sage.primary : sage.surface }]} hitSlop={6}>
-        {task.done && <Check size={13} color={sage.onPrimary} strokeWidth={3} />}
+      <Pressable onPress={() => onToggle(task.id)} style={[styles.checkbox, { borderColor: task.completed ? sage.primary : sage.ruleStrong, backgroundColor: task.completed ? sage.primary : sage.surface }]} hitSlop={6}>
+        {task.completed && <Check size={13} color={sage.onPrimary} strokeWidth={3} />}
       </Pressable>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={[text.itemTitle, task.done && styles.taskDone]}>{task.title}</Text>
+      <Pressable style={{ flex: 1, minWidth: 0 }} onLongPress={() => onPin(pinned ? null : task.id)}>
+        <Text style={[text.itemTitle, task.completed && styles.taskDone]}>{task.name}</Text>
         <View style={styles.taskMetaRow}>
           <Text style={[styles.tag, { color: e.fg, backgroundColor: e.bg }]}>{e.label}</Text>
-          <Text style={text.meta}>{task.meta}</Text>
+          <Text style={text.meta}>{metaFor(task)}</Text>
+          {pinned && <Text style={[styles.tag, { color: sage.primaryDeep, backgroundColor: sage.fillGreen }]}>Pinned</Text>}
         </View>
-      </View>
+      </Pressable>
       <View style={{ gap: 6 }}>
         <Pressable onPress={() => onEdit(task)} style={styles.miniBtn} hitSlop={4}><Pencil size={13} color={sage.fgFaint} strokeWidth={2} /></Pressable>
         <Pressable onPress={() => onRemove(task.id)} style={styles.miniBtn} hitSlop={4}><X size={14} color={sage.fgFaint} strokeWidth={2} /></Pressable>
@@ -275,14 +268,7 @@ function Composer({ editingId, draft, setDraft, draftEnergy, setDraftEnergy, sav
   return (
     <View style={[styles.card, styles.composer]}>
       <Text style={[text.labelFaint, { marginBottom: 10 }]}>{editingId ? 'Edit task' : 'New task'}</Text>
-      <TextInput
-        value={draft}
-        onChangeText={setDraft}
-        placeholder="What's one small thing?"
-        placeholderTextColor={sage.fgFaint}
-        style={styles.composerInput}
-        autoFocus
-      />
+      <TextInput value={draft} onChangeText={setDraft} placeholder="What's one small thing?" placeholderTextColor={sage.fgFaint} style={styles.composerInput} autoFocus onSubmitEditing={saveTask} />
       <View style={styles.energyPicker}>
         {(['high', 'mid', 'low'] as EnergyKey[]).map((k) => {
           const on = draftEnergy === k;
@@ -315,9 +301,9 @@ function CalendarView({ tasks, today, selected, setSelected, monthOffset, setMon
   while (cells.length % 7 !== 0) cells.push(null);
 
   const selDate = new Date(selected + 'T12:00:00');
-  const dayTasks = tasks.filter((t) => t.date === selected);
-  const dayActive = dayTasks.filter((t) => !t.done);
-  const dayDone = dayTasks.filter((t) => t.done);
+  const dayTasks = tasks.filter((t) => dayOf(t, today) === selected);
+  const dayActive = dayTasks.filter((t) => !t.completed);
+  const dayDone = dayTasks.filter((t) => t.completed);
 
   return (
     <>
@@ -343,7 +329,7 @@ function CalendarView({ tasks, today, selected, setSelected, monthOffset, setMon
           {cells.map((d, i) => {
             if (d === null) return <View key={`e${i}`} style={styles.dayCell} />;
             const key = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const has = tasks.some((t) => t.date === key);
+            const has = tasks.some((t) => dayOf(t, today) === key);
             const isSel = key === selected;
             const isToday = key === today;
             return (
@@ -366,16 +352,16 @@ function CalendarView({ tasks, today, selected, setSelected, monthOffset, setMon
         {dayActive.length > 0 && <Text style={[text.label, { marginHorizontal: 2 }]}>Active</Text>}
         {dayActive.map((t) => (
           <View key={t.id} style={styles.calRow}>
-            <View style={[styles.calDot, { backgroundColor: energy[t.energy].fg }]} />
-            <Text style={[text.itemTitle, { flex: 1 }]}>{t.title}</Text>
-            <Text style={[styles.tag, { color: energy[t.energy].fg, backgroundColor: energy[t.energy].bg }]}>{energy[t.energy].label}</Text>
+            <View style={[styles.calDot, { backgroundColor: energy[toTier(t.energy)].fg }]} />
+            <Text style={[text.itemTitle, { flex: 1 }]}>{t.name}</Text>
+            <Text style={[styles.tag, { color: energy[toTier(t.energy)].fg, backgroundColor: energy[toTier(t.energy)].bg }]}>{energy[toTier(t.energy)].label}</Text>
           </View>
         ))}
         {dayDone.length > 0 && <Text style={[text.labelFaint, { marginHorizontal: 2, marginTop: 8 }]}>Completed</Text>}
         {dayDone.map((t) => (
           <View key={t.id} style={[styles.calRow, { backgroundColor: sage.fill }]}>
             <View style={styles.calCheck}><Check size={11} color={sage.onPrimary} strokeWidth={3} /></View>
-            <Text style={[text.itemTitle, styles.taskDone, { flex: 1 }]}>{t.title}</Text>
+            <Text style={[text.itemTitle, styles.taskDone, { flex: 1 }]}>{t.name}</Text>
           </View>
         ))}
         {dayTasks.length === 0 && (
@@ -444,14 +430,13 @@ const styles = StyleSheet.create({
   taskCard: { backgroundColor: sage.surface, borderRadius: radius.card, padding: 14, paddingLeft: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 14, ...shadow.soft, ...curve },
   checkbox: { width: 26, height: 26, marginTop: 2, borderRadius: 13, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   taskDone: { color: sage.fgFaint, textDecorationLine: 'line-through' },
-  taskMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  taskMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' },
   tag: { fontFamily: font.bodySemi, fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
   miniBtn: { width: 28, height: 28, borderRadius: 10, backgroundColor: sage.fill, alignItems: 'center', justifyContent: 'center', ...curve },
 
   empty: { backgroundColor: sage.surface, borderRadius: 20, padding: 22, alignItems: 'center', ...shadow.soft, ...curve },
   emptyText: { fontFamily: font.body, fontSize: 13, color: sage.fgFaint, textAlign: 'center' },
 
-  // calendar
   calHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingBottom: 18 },
   backArrow: { fontFamily: font.headingBold, fontSize: 24, color: sage.fgSecondary, marginTop: -4 },
   todayPill: { borderRadius: 13, paddingVertical: 9, paddingHorizontal: 15, backgroundColor: sage.fillGreen, ...curve },
