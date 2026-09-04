@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, Sc
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { generateWelcomeMessage, getUserProfile, loadConversationHistory, saveMessage, sendMessageToMentor } from '../aiMentorService';
 import { SageBackground } from '@/components/sage/Background';
+import { loadUserProfile, type MentorTone } from '../userProfileStorage';
 import { curve, font, gutter, sage, shadow, text } from '@/theme/sage';
 
 interface AIChatMessage {
@@ -25,10 +26,12 @@ export default function MentorScreen() {
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [tone, setTone] = useState<MentorTone>('Gentle');
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     initialize();
+    loadUserProfile().then((p) => setTone(p.mentorTone));
   }, []);
 
   const initialize = async () => {
@@ -86,7 +89,7 @@ export default function MentorScreen() {
           <Text style={styles.headerTitle}>Mentor</Text>
           <View style={styles.statusRow}>
             <View style={styles.statusDot} />
-            <Text style={text.meta}>Gentle mode · always here</Text>
+            <Text style={text.meta}>{tone} mode · always here</Text>
           </View>
         </View>
         <Pressable onPress={clearChat} style={styles.newBtn} hitSlop={6}><Text style={styles.newBtnText}>New</Text></Pressable>

@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { Check, Pencil, Plus, X } from 'lucide-react-native';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
@@ -14,6 +14,7 @@ import {
   toggleTaskCompletion,
   updateTask,
 } from '../taskStorage';
+import { loadUserProfile } from '../userProfileStorage';
 import { curve, energy, energyInsight, type EnergyKey, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 /* ------------------------------------------------------------------ *
@@ -38,7 +39,16 @@ export default function TodayScreen() {
   const today = iso(new Date());
   const scrollY = useRef(new Animated.Value(0)).current;
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [greetName, setGreetName] = useState('');
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyKey>('mid');
+
+  // Personalisation from onboarding: name for the greeting, default energy.
+  useEffect(() => {
+    loadUserProfile().then((p) => {
+      setGreetName(p.name);
+      setSelectedEnergy(p.defaultEnergy);
+    });
+  }, []);
   const [filter, setFilter] = useState<'All' | 'High' | 'Mid' | 'Low'>('All');
   const [pinnedId, setPinnedId] = useState<number | null>(null);
 
@@ -95,6 +105,9 @@ export default function TodayScreen() {
 
   const pinned = tasks.find((t) => t.id === pinnedId && !t.completed);
   const todayLabel = `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()]}, ${new Date().getDate()} ${MONTHS[new Date().getMonth()]}`;
+  const hour = new Date().getHours();
+  const greetWord = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const greeting = greetName ? `${greetWord}, ${greetName}` : greetWord;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -139,7 +152,7 @@ export default function TodayScreen() {
             <View style={styles.header}>
               <View>
                 <Text style={styles.dateLabel}>{todayLabel}</Text>
-                <Text style={styles.greeting}>Good morning</Text>
+                <Text style={styles.greeting}>{greeting}</Text>
               </View>
               <View style={styles.headerBtns}>
                 <Pressable onPress={startAdd} style={[styles.iconBtn, styles.iconBtnPrimary]} hitSlop={6}>

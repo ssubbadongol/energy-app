@@ -1,7 +1,9 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, sage } from '@/theme/sage';
+import { isOnboarded } from '../userProfileStorage';
 
 /** Emoji tab icon with the active green pill, per the Claude Design mockup. */
 function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
@@ -22,6 +24,19 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
  */
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const [gate, setGate] = useState<'loading' | 'onboard' | 'ready'>('loading');
+
+  // Re-check on focus so returning from onboarding lands in the app.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      isOnboarded().then((done) => { if (alive) setGate(done ? 'ready' : 'onboard'); });
+      return () => { alive = false; };
+    }, []),
+  );
+
+  if (gate === 'loading') return null;
+  if (gate === 'onboard') return <Redirect href="/onboarding" />;
 
   return (
     <Tabs
