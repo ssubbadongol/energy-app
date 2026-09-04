@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Eye, Heart, Home, List, MessageCircle, PlusCircle } from 'lucide-react-native';
+import { Eye, Heart, Home, MessageCircle, Users } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontFamily, hairline, palette } from '@/theme/tokens';
 
@@ -55,6 +55,7 @@ export default function TabLayout() {
         sceneStyle: { backgroundColor: c.bg },
       }}
     >
+      {/* The five tabs: Today · Life · Mentor · Pods · Focus */}
       <Tabs.Screen
         name="index"
         options={{
@@ -70,17 +71,17 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="all-tasks"
+        name="mentor"
         options={{
-          title: 'Tasks',
-          tabBarIcon: ({ color }) => <List size={20} color={color} strokeWidth={1.25} />,
+          title: 'Mentor',
+          tabBarIcon: ({ color }) => <MessageCircle size={20} color={color} strokeWidth={1.25} />,
         }}
       />
       <Tabs.Screen
-        name="add-task"
+        name="pods"
         options={{
-          title: 'Add',
-          tabBarIcon: ({ color }) => <PlusCircle size={20} color={color} strokeWidth={1.25} />,
+          title: 'Pods',
+          tabBarIcon: ({ color }) => <Users size={20} color={color} strokeWidth={1.25} />,
         }}
       />
       <Tabs.Screen
@@ -90,13 +91,10 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <Eye size={20} color={color} strokeWidth={1.25} />,
         }}
       />
-      <Tabs.Screen
-        name="talks"
-        options={{
-          title: 'Talks',
-          tabBarIcon: ({ color }) => <MessageCircle size={20} color={color} strokeWidth={1.25} />,
-        }}
-      />
+
+      {/* Routes kept reachable (via router.push) but off the tab bar */}
+      <Tabs.Screen name="all-tasks" options={{ href: null }} />
+      <Tabs.Screen name="add-task" options={{ href: null }} />
 
       {/* Hide files that have default exports but aren't real tabs */}
       <Tabs.Screen name="LifeTaskModal" options={{ href: null }} />

@@ -1,12 +1,8 @@
-import { LogOut, MessageCircle, Send, Volume2, VolumeX } from 'lucide-react-native';
+import { LogOut, MessageCircle, Send } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { generateWelcomeMessage, getUserProfile, loadConversationHistory, saveMessage, sendMessageToMentor } from '../aiMentorService';
 import { ensureAuth, findOrCreatePod, getUserPod, isPodExpired, leavePod, sendMessage, subscribeToPodMessages } from '../podService';
-import { playAudio, textToSpeech } from '../ttsService';
-
-type TalksTab = 'ai' | 'community';
 
 interface Pod {
   id: string;
@@ -27,17 +23,10 @@ interface Message {
   createdAt: any;
 }
 
-interface AIChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: any;
-}
-
 // ADHD-friendly soft colors for user messages - expanded palette
 const USER_COLORS = [
   '#E8F5E9', // Soft mint green
-  '#E3F2FD', // Soft sky blue  
+  '#E3F2FD', // Soft sky blue
   '#FFF9C4', // Soft warm yellow
   '#F3E5F5', // Soft lavender
   '#FFE0B2', // Soft peach
@@ -50,27 +39,28 @@ const USER_COLORS = [
 
 // Assign color based on userId - uses different hash algorithm for better distribution
 const getUserColor = (userId: string): string => {
-  // Create a more unique hash that distributes colors better
   let hash = 0;
   for (let i = 0; i < userId.length; i++) {
     hash = ((hash << 5) - hash) + userId.charCodeAt(i);
     hash = hash & hash; // Convert to 32bit integer
   }
-  // Use absolute value to ensure positive index
   const index = Math.abs(hash) % USER_COLORS.length;
   return USER_COLORS[index];
 };
 
-export default function TalksScreen() {
-  const [activeTab, setActiveTab] = useState<TalksTab>('ai');
-  
-  // Community Pods state
+/**
+ * Pods tab — anonymous community support pods.
+ *
+ * Split out of the former combined "Talks" screen; this is the `'community'`
+ * half. The AI mentor chat now lives in its own `mentor.tsx` tab.
+ */
+export default function PodsScreen() {
   const [currentPod, setCurrentPod] = useState<Pod | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string>('');
-  
+
   // Join flow state
   const [struggle, setStruggle] = useState('');
   const [supportStyle, setSupportStyle] = useState('');
@@ -78,106 +68,6 @@ export default function TalksScreen() {
   const [joining, setJoining] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
-  // AI Chat state
-  const [aiMessages, setAiMessages] = useState<AIChatMessage[]>([]);
-  const [aiMessageText, setAiMessageText] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiInitializing, setAiInitializing] = useState(true);
-  const [userProfile, setUserProfile] = useState<any>(null);
-  const [ttsEnabled, setTtsEnabled] = useState(false);
-
-  // Initialize AI Chat
-  useEffect(() => {
-    if (activeTab === 'ai') {
-      initializeAIChat();
-    }
-  }, [activeTab]);
-
-  const initializeAIChat = async () => {
-    try {
-      setAiInitializing(true);
-      const profile = await getUserProfile();
-      setUserProfile(profile);
-      
-      const history = await loadConversationHistory();
-      
-      if (history.length === 0) {
-        // First time - show welcome message
-        const welcomeMsg = generateWelcomeMessage(profile);
-        const welcomeMessage: AIChatMessage = {
-          id: 'welcome-' + Date.now(),
-          role: 'model',
-          text: welcomeMsg,
-          timestamp: new Date(),
-        };
-        setAiMessages([welcomeMessage]);
-      } else {
-        setAiMessages(history);
-      }
-    } catch (error) {
-      console.error('Error initializing AI mentor:', error);
-    } finally {
-      setAiInitializing(false);
-    }
-  };
-
-  const handleSendAIMessage = async () => {
-    if (!aiMessageText.trim()) return;
-
-    const userMsg = aiMessageText.trim();
-    setAiMessageText('');
-
-    // Add user message immediately
-    const userMessage: AIChatMessage = {
-      id: 'user-' + Date.now(),
-      role: 'user',
-      text: userMsg,
-      timestamp: new Date(),
-    };
-    setAiMessages(prev => [...prev, userMessage]);
-
-    setAiLoading(true);
-
-    try {
-      // Save user message
-      await saveMessage('user', userMsg);
-
-      // Get AI response
-      const aiResponse = await sendMessageToMentor(userMsg, aiMessages, userProfile);
-
-      // Add AI response
-      const aiMessage: AIChatMessage = {
-        id: 'model-' + Date.now(),
-        role: 'model',
-        text: aiResponse,
-        timestamp: new Date(),
-      };
-      setAiMessages(prev => [...prev, aiMessage]);
-
-      // Save AI response
-      await saveMessage('model', aiResponse);
-
-      // Text-to-speech if enabled
-      if (ttsEnabled) {
-        try {
-          const audio = await textToSpeech(aiResponse);
-          if (audio) {
-            await playAudio(audio);
-          }
-        } catch (error) {
-          console.log('TTS not available:', error);
-          // Silently fail - TTS is optional
-        }
-      }
-    } catch (error: any) {
-      console.error('Error sending AI message:', error);
-      Alert.alert('Error', error.message || 'Failed to send message. Please try again.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  // Community Pods functions (existing code)
   const loadUserPod = useCallback(async () => {
     setLoading(true);
     try {
@@ -186,7 +76,7 @@ export default function TalksScreen() {
         const userId = await ensureAuth();
         setCurrentUserId(userId);
       }
-      
+
       const pod = await getUserPod();
       setCurrentPod(pod as Pod | null);
     } catch (error) {
@@ -196,10 +86,8 @@ export default function TalksScreen() {
   }, [currentUserId]);
 
   useEffect(() => {
-    if (activeTab === 'community') {
-      loadUserPod();
-    }
-  }, [activeTab, loadUserPod]);
+    loadUserPod();
+  }, [loadUserPod]);
 
   useEffect(() => {
     // Get and store current user ID - CRITICAL for message alignment
@@ -214,11 +102,11 @@ export default function TalksScreen() {
     if (currentPod) {
       // Clear old messages first
       setMessages([]);
-      
+
       const unsubscribe = subscribeToPodMessages(currentPod.id, (msgs: Message[]) => {
         setMessages(msgs);
       });
-      
+
       return () => {
         unsubscribe();
         // Clear messages when unsubscribing
@@ -243,15 +131,15 @@ export default function TalksScreen() {
         const userId = await ensureAuth();
         setCurrentUserId(userId);
       }
-      
-      const podId = await findOrCreatePod(struggle, supportStyle, duration);
+
+      await findOrCreatePod(struggle, supportStyle, duration);
       await loadUserPod();
-      
+
       // Reset join form
       setStruggle('');
       setSupportStyle('');
       setDuration('');
-      
+
       Alert.alert('Welcome! 🎉', 'You\'ve joined a pod. Be kind and supportive.');
     } catch (error) {
       console.error('Error joining pod:', error);
@@ -276,7 +164,7 @@ export default function TalksScreen() {
 
   const handleLeavePod = () => {
     if (!currentPod || leaving) return;
-    
+
     Alert.alert(
       'Leave Pod?',
       'Are you sure you want to leave this pod? Your chat history will be cleared.',
@@ -287,18 +175,18 @@ export default function TalksScreen() {
           style: 'destructive',
           onPress: async () => {
             if (leaving) return; // Prevent double-clicking
-            
+
             setLeaving(true);
             try {
               const podToLeave = currentPod.id;
-              
+
               // Clear UI immediately
               setCurrentPod(null);
               setMessages([]);
-              
+
               // Then update Firestore
               await leavePod(podToLeave);
-              
+
               Alert.alert('Left Pod', 'Chat history has been cleared. You can join a new pod.');
             } catch (error) {
               console.error('Error leaving pod:', error);
@@ -323,94 +211,6 @@ export default function TalksScreen() {
     return `${displayHours}:${displayMinutes} ${ampm}`;
   };
 
-  // AI Chat Screen
-  const renderAIChatScreen = () => {
-    if (aiInitializing) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8b5cf6" />
-          <Text style={styles.loadingText}>Initializing AI Mentor...</Text>
-        </View>
-      );
-    }
-
-    return (
-      <KeyboardAvoidingView 
-        style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {/* TTS Toggle Header */}
-        <View style={styles.ttsHeader}>
-          {ttsEnabled ? (
-            <Volume2 size={18} color="#8b5cf6" />
-          ) : (
-            <VolumeX size={18} color="#999" />
-          )}
-          <Text style={styles.ttsLabel}>Voice Responses</Text>
-          <Switch
-            value={ttsEnabled}
-            onValueChange={setTtsEnabled}
-            trackColor={{ false: '#d1d5db', true: '#c4b5fd' }}
-            thumbColor={ttsEnabled ? '#8b5cf6' : '#f4f3f4'}
-          />
-        </View>
-
-        <ScrollView 
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
-        >
-          {aiMessages.map((msg) => (
-            <View
-              key={msg.id}
-              style={[
-                styles.aiMessageItem,
-                msg.role === 'user' ? styles.aiUserMessage : styles.aiModelMessage
-              ]}
-            >
-              <Text style={[
-                styles.messageText,
-                msg.role === 'user' && styles.aiUserMessageText
-              ]}>
-                {msg.text}
-              </Text>
-              {msg.timestamp && (
-                <Text style={styles.messageTime}>
-                  {formatTimestamp(msg.timestamp)}
-                </Text>
-              )}
-            </View>
-          ))}
-          {aiLoading && (
-            <View style={[styles.aiMessageItem, styles.aiModelMessage]}>
-              <ActivityIndicator size="small" color="#8b5cf6" />
-              <Text style={styles.loadingText}>Thinking...</Text>
-            </View>
-          )}
-        </ScrollView>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            value={aiMessageText}
-            onChangeText={setAiMessageText}
-            placeholder="Message your AI mentor..."
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, (!aiMessageText.trim() || aiLoading) && styles.sendButtonDisabled]}
-            onPress={handleSendAIMessage}
-            disabled={!aiMessageText.trim() || aiLoading}
-          >
-            <Send size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    );
-  };
-
-  // Community Pods screens (existing code - Join Pod Screen)
   const renderJoinPodScreen = () => (
     <ScrollView style={styles.content}>
       <View style={styles.joinContainer}>
@@ -494,14 +294,13 @@ export default function TalksScreen() {
     </ScrollView>
   );
 
-  // Pod Chat Screen (existing code)
   const renderPodChatScreen = () => {
     if (!currentPod) return null;
-    
+
     const expired = isPodExpired(currentPod);
 
     return (
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.chatContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -520,14 +319,14 @@ export default function TalksScreen() {
         </View>
 
         {/* Messages */}
-        <ScrollView 
+        <ScrollView
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
           keyboardShouldPersistTaps="handled"
         >
           {messages.map((msg) => {
             const isOwnMessage = msg.type === 'user' && msg.userId === currentUserId;
-            
+
             return (
               <View
                 key={msg.id}
@@ -612,37 +411,11 @@ export default function TalksScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.headerContainer}>
-        <Text style={styles.title}>Talks</Text>
+        <Text style={styles.title}>Pods</Text>
         <Text style={styles.subtitle}>Connect and share with others</Text>
       </View>
 
-      {/* Browser-style tabs */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'ai' && styles.tabActive]}
-          onPress={() => setActiveTab('ai')}
-        >
-          <Text style={[styles.tabText, activeTab === 'ai' && styles.tabTextActive]}>
-            AI Chat
-          </Text>
-          {activeTab === 'ai' && <View style={styles.tabIndicator} />}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'community' && styles.tabActive]}
-          onPress={() => setActiveTab('community')}
-        >
-          <Text style={[styles.tabText, activeTab === 'community' && styles.tabTextActive]}>
-            Community Pods
-          </Text>
-          {activeTab === 'community' && <View style={styles.tabIndicator} />}
-        </TouchableOpacity>
-      </View>
-
-      {/* Content */}
-      {activeTab === 'ai' ? (
-        renderAIChatScreen()
-      ) : loading ? (
+      {loading ? (
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -678,44 +451,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     opacity: 0.9,
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  tab: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    position: 'relative',
-  },
-  tabActive: {
-    backgroundColor: '#f8f4ff',
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#666',
-  },
-  tabTextActive: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#8b5cf6',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: '#8b5cf6',
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
-  },
   content: {
     flex: 1,
   },
@@ -732,22 +467,6 @@ const styles = StyleSheet.create({
   chatContainer: {
     flex: 1,
   },
-  ttsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#f8f4ff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9d5ff',
-    gap: 8,
-  },
-  ttsLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-  },
   messagesContainer: {
     flex: 1,
     backgroundColor: '#fff',
@@ -756,34 +475,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
-  aiMessageItem: {
-    padding: 12,
-    borderRadius: 12,
-    maxWidth: '80%',
-  },
-  aiUserMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#8b5cf6',
-  },
-  aiModelMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#f3f4f6',
-  },
-  aiUserMessageText: {
-    color: '#fff',
-  },
   messageItem: {
     backgroundColor: '#f3f4f6',
     padding: 12,
     borderRadius: 12,
     maxWidth: '80%',
-    alignSelf: 'flex-start',
-  },
-  ownMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#8b5cf6', // Purple for own messages
-  },
-  otherMessage: {
     alignSelf: 'flex-start',
   },
   systemMessage: {
