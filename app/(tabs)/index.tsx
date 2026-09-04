@@ -1,9 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import { Check, Pencil, Plus, X } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+import { SageBackground } from '@/components/sage/Background';
 import {
   addTask,
   deleteTask,
@@ -31,9 +32,11 @@ const metaFor = (t: Task) => (t.time > 0 ? `~${t.time} min` : t.type && t.type !
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const FILTERS: ('All' | 'High' | 'Mid' | 'Low')[] = ['All', 'High', 'Mid', 'Low'];
+const FILL_PCT: Record<EnergyKey, `${number}%`> = { low: '34%', mid: '67%', high: '100%' };
 
 export default function TodayScreen() {
   const today = iso(new Date());
+  const scrollY = useRef(new Animated.Value(0)).current;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyKey>('mid');
   const [filter, setFilter] = useState<'All' | 'High' | 'Mid' | 'Low'>('All');
@@ -95,7 +98,7 @@ export default function TodayScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.tintBand} pointerEvents="none" />
+      <SageBackground scrollY={scrollY} />
 
       {pinned && !calendarOpen && (
         <View style={styles.pinned}>
@@ -113,7 +116,12 @@ export default function TodayScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <Animated.ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+      >
         {calendarOpen ? (
           <CalendarView
             tasks={tasks}
@@ -156,6 +164,9 @@ export default function TodayScreen() {
                     </Pressable>
                   );
                 })}
+              </View>
+              <View style={styles.energyFillTrack}>
+                <View style={[styles.energyFillBar, { width: FILL_PCT[selectedEnergy], backgroundColor: energy[selectedEnergy].bar }]} />
               </View>
               <Text style={styles.insight}>{energyInsight[selectedEnergy]}</Text>
             </View>
@@ -205,7 +216,7 @@ export default function TodayScreen() {
             )}
           </>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -378,7 +389,6 @@ function CalendarView({ tasks, today, selected, setSelected, monthOffset, setMon
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: sage.bg },
-  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 220, backgroundColor: sage.bgTintTop, opacity: 0.5 },
   scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
   pinned: { marginHorizontal: 16, marginBottom: 6, backgroundColor: sage.surface, borderRadius: 18, padding: 12, paddingLeft: 14, flexDirection: 'row', alignItems: 'center', gap: 10, ...shadow.soft, ...curve },
@@ -403,6 +413,8 @@ const styles = StyleSheet.create({
   energySeg: { flex: 1, height: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', gap: 6, ...curve },
   energyBar: { height: 5, borderRadius: 3 },
   energySegLabel: { fontFamily: font.heading, fontSize: 13 },
+  energyFillTrack: { height: 5, borderRadius: 3, backgroundColor: sage.trackAlt, overflow: 'hidden', marginTop: 12 },
+  energyFillBar: { height: '100%', borderRadius: 3 },
   insight: { fontFamily: font.body, fontSize: 13, lineHeight: 19.5, color: sage.fgSecondary, marginTop: 14 },
 
   progressCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },

@@ -1,8 +1,9 @@
 import { useFocusEffect } from 'expo-router';
 import { Check, Minus, Pencil, Plus } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SageBackground } from '@/components/sage/Background';
 import {
   addLifeTask,
   deleteLifeTask,
@@ -46,6 +47,7 @@ export default function LifeScreen() {
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [windowTouched, setWindowTouched] = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   const refresh = useCallback(() => setItems([...getLifeTasks()]), []);
 
@@ -116,8 +118,13 @@ export default function LifeScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.tintBand} pointerEvents="none" />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <SageBackground scrollY={scrollY} />
+      <Animated.ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+      >
         {setup ? (
           <>
             <View style={{ paddingVertical: 8, paddingBottom: 16 }}>
@@ -267,7 +274,7 @@ export default function LifeScreen() {
             })}
           </>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -284,7 +291,6 @@ function Stepper({ value, onInc, onDec }: { value: string; onInc: () => void; on
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: sage.bg },
-  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 200, backgroundColor: sage.bgTintTop, opacity: 0.45 },
   scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
   card: { backgroundColor: sage.surface, borderRadius: radius.cardLg, padding: 18, ...shadow.card, ...curve, marginBottom: 14 },

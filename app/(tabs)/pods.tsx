@@ -2,6 +2,7 @@ import { Send } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SageBackground } from '@/components/sage/Background';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 /* ------------------------------------------------------------------ *
@@ -63,7 +64,7 @@ export default function PodsScreen() {
     const podMsgs = msgs[pod.id] || [];
     return (
       <SafeAreaView style={styles.screen} edges={['top']}>
-        <View style={styles.tintBand} pointerEvents="none" />
+        <SageBackground />
         <View style={styles.chatHeader}>
           <Pressable onPress={() => setActivePod(null)} style={[styles.iconBtn, { backgroundColor: sage.surface }]} hitSlop={6}>
             <Text style={styles.backArrow}>‹</Text>
@@ -108,7 +109,7 @@ export default function PodsScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.tintBand} pointerEvents="none" />
+      <SageBackground />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={{ paddingVertical: 8, paddingBottom: 16 }}>
           <Text style={text.title}>Pods</Text>
@@ -152,7 +153,6 @@ export default function PodsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: sage.bg },
-  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 180, backgroundColor: sage.bgTintTop, opacity: 0.45 },
   scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
   podCard: { backgroundColor: sage.surface, borderRadius: radius.card, padding: 18, marginBottom: 12, position: 'relative', overflow: 'hidden', ...shadow.card, ...curve },

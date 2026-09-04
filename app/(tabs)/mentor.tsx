@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { generateWelcomeMessage, getUserProfile, loadConversationHistory, saveMessage, sendMessageToMentor } from '../aiMentorService';
+import { SageBackground } from '@/components/sage/Background';
 import { curve, font, gutter, sage, shadow, text } from '@/theme/sage';
 
 interface AIChatMessage {
@@ -74,7 +75,7 @@ export default function MentorScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.tintBand} pointerEvents="none" />
+      <SageBackground />
 
       {/* header */}
       <View style={styles.header}>
@@ -150,7 +151,6 @@ export default function MentorScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: sage.bg },
-  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 160, backgroundColor: sage.bgTintTop, opacity: 0.4 },
 
   header: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 16 },
   avatar: { width: 44, height: 44, borderRadius: 18, backgroundColor: sage.surface, alignItems: 'center', justifyContent: 'center', ...shadow.soft, ...curve },

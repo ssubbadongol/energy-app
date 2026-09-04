@@ -1,15 +1,24 @@
 import { Tabs } from 'expo-router';
-import { Eye, Heart, Home, MessageCircle, Users } from 'lucide-react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, sage } from '@/theme/sage';
+
+/** Emoji tab icon with the active green pill, per the Claude Design mockup. */
+function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
+  return (
+    <View style={[styles.pill, focused && styles.pillActive]}>
+      <Text style={[styles.emoji, { opacity: focused ? 1 : 0.5, transform: [{ scale: focused ? 1.1 : 1 }] }]}>{emoji}</Text>
+    </View>
+  );
+}
 
 /**
  * Tab bar — sage redesign.
  *
- * A soft white bar with rounded top corners floating over the pale paper
- * shell, Quicksand labels, and the active tab tinted with the primary green.
- * Height still includes the safe-area inset (letting React Navigation manage
- * it via paddingBottom) so the Android gesture bar never overlaps the controls.
+ * A soft white bar with rounded top corners floating over the paper shell,
+ * Quicksand labels, and emoji icons that sit in a green pill when active.
+ * Height includes the safe-area inset (via paddingBottom) so the Android
+ * gesture bar never overlaps the controls.
  */
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -30,14 +39,14 @@ export default function TabLayout() {
           shadowOffset: { width: 0, height: -3 },
           shadowOpacity: 0.09,
           shadowRadius: 20,
-          height: 60 + insets.bottom,
+          height: 62 + insets.bottom,
           paddingBottom: insets.bottom,
           paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontFamily: font.heading,
           fontSize: 10,
-          marginTop: 2,
+          marginTop: 4,
         },
         sceneStyle: { backgroundColor: sage.bg },
       }}
@@ -45,38 +54,23 @@ export default function TabLayout() {
       {/* The five tabs: Today · Life · Mentor · Pods · Focus */}
       <Tabs.Screen
         name="index"
-        options={{
-          title: 'Today',
-          tabBarIcon: ({ color }) => <Home size={20} color={color} strokeWidth={1.25} />,
-        }}
+        options={{ title: 'Today', tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} /> }}
       />
       <Tabs.Screen
         name="life"
-        options={{
-          title: 'Life',
-          tabBarIcon: ({ color }) => <Heart size={20} color={color} strokeWidth={1.25} />,
-        }}
+        options={{ title: 'Life', tabBarIcon: ({ focused }) => <TabIcon emoji="🌱" focused={focused} /> }}
       />
       <Tabs.Screen
         name="mentor"
-        options={{
-          title: 'Mentor',
-          tabBarIcon: ({ color }) => <MessageCircle size={20} color={color} strokeWidth={1.25} />,
-        }}
+        options={{ title: 'Mentor', tabBarIcon: ({ focused }) => <TabIcon emoji="🦊" focused={focused} /> }}
       />
       <Tabs.Screen
         name="pods"
-        options={{
-          title: 'Pods',
-          tabBarIcon: ({ color }) => <Users size={20} color={color} strokeWidth={1.25} />,
-        }}
+        options={{ title: 'Pods', tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} /> }}
       />
       <Tabs.Screen
         name="focus"
-        options={{
-          title: 'Focus',
-          tabBarIcon: ({ color }) => <Eye size={20} color={color} strokeWidth={1.25} />,
-        }}
+        options={{ title: 'Focus', tabBarIcon: ({ focused }) => <TabIcon emoji="🎯" focused={focused} /> }}
       />
 
       {/* Routes kept reachable (via router.push) but off the tab bar */}
@@ -90,3 +84,9 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  pill: { width: 44, height: 30, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  pillActive: { backgroundColor: sage.fillGreen },
+  emoji: { fontSize: 18, lineHeight: 22 },
+});

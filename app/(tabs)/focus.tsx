@@ -1,9 +1,10 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Camera } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Line, Path } from 'react-native-svg';
+import { SageBackground } from '@/components/sage/Background';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 /* ------------------------------------------------------------------ *
@@ -26,6 +27,7 @@ export default function FocusScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [drift, setDrift] = useState(0);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!running) return;
@@ -54,8 +56,13 @@ export default function FocusScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.tintBand} pointerEvents="none" />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <SageBackground scrollY={scrollY} />
+      <Animated.ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+      >
         <View style={styles.header}>
           <Text style={text.title}>Focus</Text>
           <Text style={text.body}>{mm}:{ss} this session</Text>
@@ -127,14 +134,13 @@ export default function FocusScreen() {
           <Text style={[text.button, { color: running ? sage.primaryInk : sage.onPrimary }]}>{running ? 'Pause tracking' : 'Resume tracking'}</Text>
         </Pressable>
         <Text style={styles.note}>Video never leaves your phone. Looking away is data, not failure.</Text>
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: sage.bg },
-  tintBand: { position: 'absolute', top: 0, left: 0, right: 0, height: 180, backgroundColor: sage.bgTintTop, opacity: 0.45 },
   scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 8, paddingBottom: 16 },
