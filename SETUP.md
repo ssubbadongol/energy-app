@@ -18,10 +18,33 @@ Firebase project: **leedshack26** · Functions region: **us-central1**
 | 5 | RevenueCat webhook secret | You invent it (any long random string) | Secret Manager + RevenueCat webhook header |
 | 6 | `google-services.json` | Firebase Console → Android app | repo root |
 | 7 | `GoogleService-Info.plist` | Firebase Console → iOS app | repo root |
+| 7b | `google-services.dev.json` *(optional)* | Firebase Console → dev project | repo root, for the dev variant |
 | 8 | App Store / Play subscription products | App Store Connect + Play Console | RevenueCat dashboard |
 
 Nothing here belongs in git. `.env`, `google-services.json` and
 `GoogleService-Info.plist` should all be gitignored (see §9).
+
+---
+
+## 0.5 Enable billing (do this first)
+
+Cloud Functions v2 — which is every function in this repo — **cannot deploy on
+the Spark plan**. As of writing, `leedshack26` has billing disabled, so
+`firebase deploy --only functions` will fail before it uploads anything.
+
+```bash
+firebase login
+firebase projects:list
+```
+
+Then Firebase Console → ⚙ → **Usage and billing** → **Details & settings** →
+**Modify plan** → **Blaze**. Attach a billing account and set a budget alert in
+the same sitting (§6 wires that budget to the kill switch).
+
+Blaze is pay-as-you-go with the free tiers intact — the Firestore and Functions
+free quotas still apply, so a pre-launch app typically bills £0 for everything
+except Gemini. Do not skip §6; the budget alert is what stops an unexpected
+bill turning into a surprising one.
 
 ---
 
@@ -244,12 +267,83 @@ GoogleService-Info.plist
 
 ---
 
+## 9.5 Build variants
+
+`app.config.ts` layers a per-variant identity over `app.json`, so a dev build
+installs **alongside** the real app rather than replacing it:
+
+| Variant | App name | Bundle id / package | App Attest env |
+|---|---|---|---|
+| `development` | Soft Focus Dev | `com.tsuyo7.energyapp.dev` | development |
+| `preview` | Soft Focus Beta | `com.tsuyo7.energyapp.beta` | production |
+| `production` | Soft Focus | `com.tsuyo7.energyapp` | production |
+
+Chosen by `APP_VARIANT`, which `eas.json` sets per build profile. Unset — a
+plain `npx expo start` — means `development`: the safe default, because the
+build you run by accident should be the one that cannot charge anyone.
+
+```bash
+eas build --profile development --platform android   # Soft Focus Dev
+eas build --profile preview     --platform android   # Soft Focus Beta
+eas build --profile production  --platform android   # Soft Focus
+```
+
+Each variant also carries a launcher-icon tint and an in-app corner badge
+(`components/BuildBadge.tsx`, silent in production), so a screenshot from the
+wrong build is obvious.
+
+### Separate Firebase projects
+
+A dev build writing throwaway pods and sandbox entitlements into the production
+project pollutes exactly the data real users read. Both halves are switchable
+without touching code:
+
+- **JS SDK** — set the `EXPO_PUBLIC_FIREBASE_*` vars in `.env` (see
+  `.env.example`). Blank falls back to the committed project.
+- **Native SDK** — drop `google-services.dev.json` /
+  `GoogleService-Info.dev.plist` in the repo root. `app.config.ts` prefers the
+  variant-suffixed file and falls back to the unsuffixed one.
+
+Recommended split: keep `leedshack26` as **dev** (it is a hackathon project
+with hackathon data in it) and create a clean project for production. When you
+do, leave the new project **out** of `DEV_PROJECT_IDS` — see below.
+
+---
+
+## 9.6 Dev Pro grants
+
+Developing anything behind the paywall means a sandbox purchase per device per
+rebuild. `grantDevPro` short-circuits that with a **24-hour** `pro` claim, and
+`revokeDevPro` hands it back so the locked state is equally easy to reach.
+
+The control lives at the bottom of the paywall, dev builds only. Three guards
+all have to pass:
+
+1. The runtime project must be in `DEV_PROJECT_IDS` (`functions/src/config.ts`).
+   An allowlist, not a denylist — forgetting to update it breaks dev grants
+   rather than giving away the subscription. **Never add your production
+   project to it.**
+2. `config/flags.devProEnabled` must be explicitly `true`. It is the one flag
+   that defaults to *false*, so a fresh project refuses until you turn it on:
+
+   ```
+   Firestore -> config/flags -> devProEnabled: true  (boolean)
+   ```
+3. Normal auth + App Check, as with every other callable.
+
+Grants are stamped `proStore: 'dev_override'`, so they are distinguishable in
+the data and a real RevenueCat event overwrites them cleanly.
+
+---
+
 ## 10. Smoke test
 
 1. Fresh install → onboarding → pick tags → land on Today.
 2. Open **Mentor** → paywall appears (you are not Pro yet).
 3. Buy through a sandbox account → the screen unlocks **without a restart**
-   (that is the forced `getIdToken(true)` doing its job).
+   (that is the forced `getIdToken(true)` doing its job). On a dev build you
+   can use **Grant Pro** at the bottom of the paywall instead (§9.6) — but do
+   the real sandbox purchase at least once before you ship.
 4. Say *"add a task to finish my lab report"* → the mentor asks for the missing
    fields, then a receipt appears under its reply and the task shows on **Today**.
 5. Open **Pods** → *Find me a pod* → post a message. It appears immediately with
@@ -265,3 +359,28 @@ GoogleService-Info.plist
   capped at **1** token — the call reads `safetyRatings`, it never needs a reply.
 - Manual kill switch: edit `config/flags` in Firestore. Instances cache it for
   60 seconds.
+
+### What a mentor message actually costs
+
+At `gemini-2.5-flash-lite` rates ($0.10/M input, $0.40/M output) and this
+config — ~350 tokens of system prompt, ~520 of tool declarations, 20 replayed
+history turns, and a reply that is typically 120–180 tokens against a 700 cap:
+
+| | tokens | cost |
+|---|---|---|
+| Input per turn | ~2,000 | $0.00020 |
+| Output per turn | ~150 | $0.00006 |
+| **Per message** | | **~$0.00026** |
+| A user at the 50/day cap, all month | 1,500 msgs | **~$0.39** |
+| A realistic heavy user (~15/day) | 450 msgs | ~$0.12 |
+| A typical user (~4/day) | 120 msgs | ~$0.03 |
+
+Firestore adds roughly $0.01–0.02 per heavy user per month (the 20-document
+history read per turn dominates), against a 50k read/day free tier.
+
+So the daily cap is not really a cost control — even a user who maxes it out
+every single day for a month costs under a third of one month's subscription.
+It is an **abuse** control, and that is the right way to think about changing
+it. The things that would genuinely move the bill are, in order: switching to
+a larger model, raising `MENTOR_HISTORY_TURNS`, and raising
+`MAX_OUTPUT_TOKENS.mentorReply`.

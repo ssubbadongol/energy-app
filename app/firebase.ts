@@ -18,13 +18,26 @@ import { getAuth, signInAnonymously, onAuthStateChanged, type User } from 'fireb
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type HttpsCallable } from 'firebase/functions';
 
+/**
+ * Project config.
+ *
+ * These values are not secrets — they identify the project, and Firestore
+ * rules plus App Check are what actually protect it — but which project a
+ * build talks to is very much a per-variant decision. A dev build writing
+ * throwaway pods and sandbox entitlements into the production project would
+ * pollute exactly the data a real user reads.
+ *
+ * So each value is overridable from the environment, with the current project
+ * as the committed fallback. Pointing a dev build at its own Firebase project
+ * is then a matter of filling in `.env`, not editing code.
+ */
 const firebaseConfig = {
-  apiKey: 'AIzaSyC49xk0IY6ER-NLetAgDu9Pk7cSsilKCPg',
-  authDomain: 'leedshack26.firebaseapp.com',
-  projectId: 'leedshack26',
-  storageBucket: 'leedshack26.firebasestorage.app',
-  messagingSenderId: '314817464747',
-  appId: '1:314817464747:web:d2940c5697afab3564aaee',
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'AIzaSyC49xk0IY6ER-NLetAgDu9Pk7cSsilKCPg',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'leedshack26.firebaseapp.com',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'leedshack26',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'leedshack26.firebasestorage.app',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_SENDER_ID ?? '314817464747',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '1:314817464747:web:d2940c5697afab3564aaee',
 };
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);

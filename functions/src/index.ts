@@ -14,6 +14,8 @@
  *   budgetKillSwitch      Billing budget -> config/flags
  *   sweepExpiredPods      Closes expired rooms and deletes their contents
  *   trimMentorHistory     Bounds per-user conversation growth
+ *   grantDevPro           Time-boxed Pro claim, development projects only
+ *   revokeDevPro          Hands it back, to test the locked state
  */
 export { mentorChat, mentorStatus } from './mentor';
 export { joinPod, leavePod } from './pods';
@@ -21,3 +23,4 @@ export { moderatePodMessage } from './moderation';
 export { revenueCatWebhook, refreshEntitlement } from './revenuecat';
 export { budgetKillSwitch } from './budget';
 export { sweepExpiredPods, trimMentorHistory } from './cleanup';
+export { grantDevPro, revokeDevPro } from './devPro';

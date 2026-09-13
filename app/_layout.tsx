@@ -32,6 +32,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { handleNotificationResponse, setupNotifications } from './(tabs)/notificationService';
 import { EntitlementProvider } from '@/components/pro/EntitlementProvider';
+import { BuildBadge } from '@/components/BuildBadge';
 import { sage } from '@/theme/sage';
 
 export const unstable_settings = {
@@ -115,6 +116,8 @@ export default function RootLayout() {
           </EntitlementProvider>
           {/* Dark glyphs: the app is warm paper, not a dark theme. */}
           <StatusBar style="dark" />
+          {/* Outside the Stack so it survives navigation. No-op in production. */}
+          <BuildBadge />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

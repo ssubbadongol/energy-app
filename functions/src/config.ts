@@ -51,6 +51,24 @@ export const POD_MAX_MESSAGE_CHARS = 500;
 export const FLAGS_CACHE_TTL_MS = 60_000;
 
 /* ------------------------------------------------------------------ *
+ * Development
+ * ------------------------------------------------------------------ */
+
+/**
+ * Projects where `grantDevPro` is permitted to hand out a Pro claim without a
+ * purchase. An allowlist, not a denylist: forgetting to add a project here
+ * breaks dev grants, whereas forgetting to remove one from a denylist would
+ * give away the subscription.
+ *
+ * When you create a separate production project, it simply never goes in this
+ * list — that omission is the entire safety mechanism, so do not "fix" it.
+ */
+export const DEV_PROJECT_IDS: readonly string[] = ['leedshack26'];
+
+/** How long a dev Pro grant lasts before it expires on its own. */
+export const DEV_PRO_TTL_MS = 24 * 60 * 60 * 1000;
+
+/* ------------------------------------------------------------------ *
  * Pods
  * ------------------------------------------------------------------ */
 

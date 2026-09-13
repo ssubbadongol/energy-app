@@ -18,6 +18,14 @@ export interface Flags {
   podsEnabled: boolean;
   /** Human-readable note shown in the client when something is off. */
   reason: string | null;
+  /**
+   * Whether `grantDevPro` may hand out a Pro claim without a purchase.
+   *
+   * The only flag here that defaults to *false*. Every other flag fails open
+   * because a Firestore blip should not take the product down; this one fails
+   * closed, because the cost of it being wrong is giving the subscription away.
+   */
+  devProEnabled: boolean;
 }
 
 export const DEFAULT_FLAGS: Flags = {
@@ -25,6 +33,7 @@ export const DEFAULT_FLAGS: Flags = {
   podModerationEnabled: true,
   podsEnabled: true,
   reason: null,
+  devProEnabled: false,
 };
 
 let cached: { at: number; value: Flags } | null = null;
@@ -41,6 +50,8 @@ export async function getFlags(): Promise<Flags> {
       podModerationEnabled: data.podModerationEnabled !== false,
       podsEnabled: data.podsEnabled !== false,
       reason: data.reason ?? null,
+      // Opt-in, unlike the rest: absent means off.
+      devProEnabled: data.devProEnabled === true,
     };
     cached = { at: Date.now(), value };
     return value;
