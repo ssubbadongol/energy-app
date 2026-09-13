@@ -96,18 +96,39 @@ function firstExisting(candidates: string[]): string | undefined {
   return candidates.find((candidate) => fs.existsSync(path.resolve(__dirname, candidate)));
 }
 
+/**
+ * Resolve a native Firebase config file, EAS first.
+ *
+ * These files are gitignored — they are per-project and there is no reason for
+ * them to be in the repo — which means an EAS worker never receives them, and
+ * the `@react-native-firebase/app` plugin fails prebuild outright when the
+ * file is missing. EAS file environment variables are the supported way
+ * across that gap: the worker materialises the file and hands us its absolute
+ * path in an env var.
+ *
+ * Locally that variable is unset and the on-disk files are used instead, so
+ * the same config works in both places without a branch at the call site.
+ *
+ *   eas env:create --name GOOGLE_SERVICES_JSON --type file  *     --value ./google-services.json --visibility secret
+ */
+function nativeConfig(envVar: string, candidates: string[]): string | undefined {
+  const fromEas = process.env[envVar];
+  if (fromEas && fs.existsSync(fromEas)) return fromEas;
+  return firstExisting(candidates);
+}
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   const v = VARIANTS[variant];
 
-  const androidGoogleServices = firstExisting(v.googleServices.android);
-  const iosGoogleServices = firstExisting(v.googleServices.ios);
+  const androidGoogleServices = nativeConfig('GOOGLE_SERVICES_JSON', v.googleServices.android);
+  const iosGoogleServices = nativeConfig('GOOGLE_SERVICES_INFO_PLIST', v.googleServices.ios);
 
   return {
     ...config,
     // `slug` is deliberately inherited: it binds to the EAS project id, and all
     // three variants are the same project with different build profiles.
     name: v.name,
-    slug: config.slug ?? 'energy-app',
+    slug: config.slug ?? 'soft-focus',
     scheme: v.scheme,
 
     ios: {
