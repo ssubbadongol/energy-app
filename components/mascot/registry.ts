@@ -1,5 +1,15 @@
 import { createContext, useContext } from 'react';
 
+/**
+ * What the mascot does while it is standing on a container.
+ *
+ * The clip is a property of the container, not a random draw: a task is
+ * something being worked on, a finished one is something to rest beside, and
+ * everything else is just a good place to sit. `walking` is not a mood — it is
+ * only ever travel between containers, or a wander around one.
+ */
+export type MascotMood = 'happy' | 'working' | 'sleeping';
+
 /** Where on a container the mascot stands. */
 export type PerchSpot =
   /** On the container's top edge, feet sinking slightly into it. The default. */
@@ -17,6 +27,12 @@ export interface PerchRect {
 export interface Perch {
   id: string;
   spot: PerchSpot;
+  mood: MascotMood;
+  /**
+   * Asks the mascot to come here and stay for as long as the flag is set —
+   * used by composers and editors, which want it alongside the work.
+   */
+  call: boolean;
   /**
    * Measured fresh on every call, in window coordinates. Containers live in
    * scroll views, so a position cached at registration time is wrong the
@@ -53,6 +69,11 @@ export class PerchRegistry {
 
   get(id: string): Perch | undefined {
     return this.perches.get(id);
+  }
+
+  /** The container currently asking for the mascot, if any. */
+  caller(): Perch | undefined {
+    return this.list().find((p) => p.call);
   }
 
   subscribe(fn: () => void): () => void {

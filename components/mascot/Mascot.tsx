@@ -20,7 +20,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useReduceMotion } from '@/theme/useMotion';
 import { BOX_H, BOX_W, CLIPS, CLIP_NAMES, type ClipName } from './frames';
-import { MascotRegistryContext, type Perch, type PerchRect } from './registry';
+import {
+  MascotRegistryContext,
+  type MascotMood,
+  type Perch,
+  type PerchRect,
+} from './registry';
 
 /* ------------------------------------------------------------------ *
  * Tuning
@@ -36,27 +41,24 @@ const MAX_HOPS = 6;
 const HOP_MS = 320;
 /** Position resync while parked, so the mascot rides its card as you scroll. */
 const FOLLOW_MS = 40;
-const REACTION_MS = 2400;
+const REACTION_MS = 2600;
 
-/** What the mascot does once it has landed, and for how long. */
-const ACTIVITIES: { clip: ClipName; weight: number; min: number; max: number }[] = [
-  { clip: 'working', weight: 5, min: 4200, max: 8000 },
-  { clip: 'sleeping', weight: 3, min: 6000, max: 11000 },
-  { clip: 'happy', weight: 2, min: 2400, max: 3800 },
-];
+/**
+ * How long the mascot settles into a container's mood before doing anything
+ * else. Long enough to read as an activity rather than a flicker.
+ */
+const SETTLE_MIN = 10000;
+const SETTLE_MAX = 14000;
+/** A second, shorter stint after a wander, before it moves on. */
+const RESETTLE_MIN = 7000;
+const RESETTLE_MAX = 10000;
+/** Chance that a stint is followed by a wander around the same container. */
+const WANDER_CHANCE = 0.45;
+
+/** The mascot's resting state, and what it falls back to. */
+const RESTING: MascotMood = 'happy';
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
-
-function pickActivity(avoid?: ClipName) {
-  const pool = ACTIVITIES.filter((a) => a.clip !== avoid);
-  const options = pool.length ? pool : ACTIVITIES;
-  let roll = Math.random() * options.reduce((sum, a) => sum + a.weight, 0);
-  for (const a of options) {
-    roll -= a.weight;
-    if (roll <= 0) return a;
-  }
-  return options[options.length - 1];
-}
 
 function shuffle<T>(items: T[]): T[] {
   const out = items.slice();
@@ -162,7 +164,7 @@ export function Mascot() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
-  const [clip, setClip] = useState<ClipName>('working');
+  const [clip, setClip] = useState<ClipName>(RESTING);
 
   /** Foot position in window coordinates — the sprite box's bottom centre. */
   const footX = useSharedValue(screenW / 2);
@@ -217,6 +219,8 @@ export function Mascot() {
     let parked: ReturnType<typeof setInterval> | null = null;
     /** True once the container we are standing on has scrolled out of sight. */
     let lost = false;
+    /** Held while a deliberate animation owns the position, e.g. a tap hop. */
+    let parkPaused = false;
 
     const sleep = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -249,10 +253,18 @@ export function Mascot() {
       return { x: Math.max(half, Math.min(width - half, x)), y };
     };
 
-    /** First perch, in shuffled order, that is currently on screen. */
+    /**
+     * Where to go next. A container that is calling wins outright — that is a
+     * composer or an editor asking for company, and it should not have to win a
+     * coin toss. Otherwise: the first perch, in shuffled order, that is on
+     * screen and is not the one we are already standing on.
+     */
     const findSpot = async (exclude?: string) => {
       const all = registry.list();
-      const candidates = shuffle(all.length > 1 ? all.filter((p) => p.id !== exclude) : all);
+      const caller = registry.caller();
+      const candidates = caller
+        ? [caller]
+        : shuffle(all.length > 1 ? all.filter((p) => p.id !== exclude) : all);
       for (const perch of candidates) {
         const rect = await perch.measure();
         if (cancelled) return null;
@@ -317,6 +329,7 @@ export function Mascot() {
 
     /** Drop in from off screen, for the first appearance and after a tab change. */
     const arriveAt = async (foot: { x: number; y: number }) => {
+      if (cancelled) return;
       opacity.value = withTiming(0, { duration: 160 });
       await sleep(170);
       if (cancelled) return;
@@ -346,23 +359,33 @@ export function Mascot() {
     const park = (perch: Perch, foot: { x: number; y: number }) => {
       lost = false;
       let offset: number | null = null;
+      // Null until the first tick, so parking always asserts visibility rather
+      // than assuming whatever the last animation happened to leave behind.
+      let shown: boolean | null = null;
+
       parked = setInterval(async () => {
         const rect = await perch.measure();
-        if (cancelled || !rect) return;
+        if (cancelled || parkPaused || !rect) return;
         if (offset === null) offset = foot.x - (rect.x + rect.width / 2);
         const y = footYFor(rect, perch);
         footX.value = rect.x + rect.width / 2 + offset;
         footY.value = y;
 
+        // Visibility is a function of where the container currently is, not a
+        // flag some earlier step remembered to clear. Standing somewhere on
+        // screen means visible, every tick, which also heals a fade-out left
+        // behind by a superseded run of this effect.
         const { top, bottom } = bounds.current;
-        const offScreen = y - BOX_H < top || y > bottom;
-        if (offScreen && !lost) {
+        const visible = y - BOX_H >= top && y <= bottom;
+        if (visible !== shown) {
+          shown = visible;
+          opacity.value = withTiming(visible ? 1 : 0, { duration: 200 });
+        }
+        if (!visible && !lost) {
           lost = true;
-          opacity.value = withTiming(0, { duration: 200 });
           wake.current?.();
-        } else if (!offScreen && lost) {
+        } else if (visible) {
           lost = false;
-          opacity.value = withTiming(1, { duration: 200 });
         }
       }, FOLLOW_MS);
     };
@@ -372,73 +395,150 @@ export function Mascot() {
       parked = null;
     };
 
-    /** Answer a tap. Purely a squash pop, so it cannot fight the park tracker. */
+    /**
+     * Answer a tap: a hop on the spot and a beam. The position tracker is
+     * paused for the hop so the two are not writing footY at each other.
+     */
     const react = async () => {
       tapped.current = false;
       setClip('happy');
+      parkPaused = true;
+      const base = footY.value;
+      footY.value = withSequence(
+        withTiming(base - 26, { duration: 160, easing: Easing.out(Easing.quad) }),
+        withTiming(base, { duration: 180, easing: Easing.in(Easing.quad) }),
+      );
       squash.value = withSequence(
-        withTiming(1.14, { duration: 140, easing: Easing.out(Easing.quad) }),
-        withTiming(0.9, { duration: 110 }),
-        withTiming(1.03, { duration: 110 }),
+        withTiming(1.12, { duration: 160 }),
+        withTiming(0.88, { duration: 100 }),
+        withTiming(1.04, { duration: 110 }),
         withTiming(1, { duration: 120 }),
       );
-      await sleep(REACTION_MS);
+      await sleep(420);
+      parkPaused = false;
+      await sleep(REACTION_MS - 420);
+    };
+
+    /**
+     * Hold a container's mood for a stretch, breaking out early for a tap, for
+     * the container scrolling away, or for another container calling.
+     */
+    const settle = async (mood: MascotMood, ms: number) => {
+      setClip(mood);
+      let remaining = ms;
+      while (remaining > 0 && !cancelled && !lost) {
+        if (tapped.current) {
+          await react();
+          if (cancelled) return;
+          remaining -= REACTION_MS;
+          setClip(mood);
+          continue;
+        }
+        const startedAt = Date.now();
+        await sleep(remaining);
+        remaining -= Date.now() - startedAt;
+        // Woken early means the registry changed. If that was a composer asking
+        // for the mascot, go now rather than sitting out the rest of the stint.
+        if (remaining > 400 && registry.caller()) return;
+      }
+    };
+
+    /**
+     * A few unhurried steps around the container it is already on. This is
+     * where the walking clip gets to be an idle rather than only a commute.
+     */
+    const wanderAround = async (perch: Perch) => {
+      const steps = 2 + Math.floor(Math.random() * 3);
+      let landed: { x: number; y: number } | null = null;
+      for (let i = 0; i < steps && !cancelled; i++) {
+        const rect = await perch.measure();
+        if (cancelled || !rect) return landed;
+        const foot = footFor(rect, perch);
+        if (!foot) return landed;
+        await travelTo(foot);
+        landed = foot;
+        // Pause mid-stroll and look pleased with itself.
+        if (Math.random() < 0.55) {
+          setClip(RESTING);
+          await sleep(rand(700, 1400));
+        }
+      }
+      return landed;
     };
 
     const run = async () => {
       let placed = false;
-      let currentId: string | undefined;
+      let current: Perch | undefined;
+      /** Container ids that were on screen when the mascot last settled. */
+      let known = new Set<string>();
 
       while (!cancelled) {
-        const next = await findSpot(currentId);
-        if (cancelled) return;
+        const caller = registry.caller();
+        let foot: { x: number; y: number } | null = null;
 
-        if (!next) {
-          // Nothing to stand on — this tab is a conversation, or everything
-          // has scrolled away. Step off screen and check back shortly.
-          opacity.value = withTiming(0, { duration: 220 });
-          placed = false;
-          currentId = undefined;
-          await sleep(700);
-          continue;
-        }
+        if (caller && current && caller.id === current.id && placed && !lost) {
+          // Already keeping the composer company. Stay, and pick up its mood in
+          // case the container changed what it is asking for.
+          current = caller;
+        } else {
+          const next = await findSpot(current?.id);
+          if (cancelled) return;
 
-        // Hop only between containers that are on the same screen, and only
-        // from somewhere the user can see. If the perch we were standing on has
-        // gone, the user changed tabs, and walking across the new screen from a
-        // stale position would be nonsense.
-        const sameScreen =
-          placed && !lost && currentId !== undefined && registry.get(currentId) !== undefined;
-        if (sameScreen) await travelTo(next.foot);
-        else await arriveAt(next.foot);
-        if (cancelled) return;
-
-        placed = true;
-        currentId = next.perch.id;
-        park(next.perch, next.foot);
-
-        // Idle here, cycling a couple of activities and breaking out into a
-        // reaction whenever the user taps.
-        let remaining = rand(7000, 13000);
-        let last: ClipName | undefined;
-        while (remaining > 0 && !cancelled) {
-          if (lost) break;
-          if (tapped.current) {
-            await react();
-            remaining = Math.max(remaining - REACTION_MS, 1500);
-            last = 'happy';
+          if (!next) {
+            // Nothing to stand on — this tab is a conversation, or everything
+            // has scrolled away. Step off screen and check back shortly.
+            opacity.value = withTiming(0, { duration: 220 });
+            placed = false;
+            current = undefined;
+            await sleep(700);
             continue;
           }
-          const activity = pickActivity(last);
-          const span = Math.min(remaining, rand(activity.min, activity.max));
-          setClip(activity.clip);
-          last = activity.clip;
-          const startedAt = Date.now();
-          await sleep(span);
-          remaining -= Date.now() - startedAt;
+
+          // Hop only between containers on the same screen, and only from
+          // somewhere the user can see. A screen is "still the same one" if any
+          // container it had when we landed is still registered — testing only
+          // the perch underfoot would make the mascot teleport every time a
+          // composer closed or a task was deleted out from under it.
+          const sameScreen =
+            placed && !lost && registry.list().some((p) => known.has(p.id));
+          if (sameScreen) await travelTo(next.foot);
+          else await arriveAt(next.foot);
+          if (cancelled) return;
+
+          placed = true;
+          current = next.perch;
+          foot = next.foot;
         }
 
+        if (!foot) {
+          const rect = await current.measure();
+          const here = rect ? footFor(rect, current) : null;
+          if (!here) {
+            current = undefined;
+            continue;
+          }
+          foot = here;
+        }
+
+        known = new Set(registry.list().map((p) => p.id));
+        park(current, foot);
+        await settle(current.mood, rand(SETTLE_MIN, SETTLE_MAX));
         unpark();
+        if (cancelled) return;
+
+        // Being called means staying put, so skip the stroll and loop straight
+        // back into the mood the caller asked for.
+        if (registry.caller()?.id === current.id) continue;
+
+        if (!lost && Math.random() < WANDER_CHANCE && registry.get(current.id)) {
+          const landed = await wanderAround(current);
+          if (cancelled) return;
+          if (landed && !lost) {
+            park(current, landed);
+            await settle(current.mood, rand(RESETTLE_MIN, RESETTLE_MAX));
+            unpark();
+          }
+        }
       }
     };
 
@@ -466,7 +566,7 @@ export function Mascot() {
 
     let cancelled = false;
     const settle = async () => {
-      const perch = registry.list()[0];
+      const perch = registry.caller() ?? registry.list()[0];
       if (!perch) {
         opacity.value = 0;
         return;
@@ -476,7 +576,7 @@ export function Mascot() {
       footX.value = rect.x + rect.width / 2;
       footY.value = rect.y + SINK;
       opacity.value = 1;
-      setClip('working');
+      setClip(perch.mood);
     };
 
     void settle();

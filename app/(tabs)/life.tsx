@@ -133,7 +133,7 @@ export default function LifeScreen() {
               <Text style={[text.body, { marginTop: 6, maxWidth: 260 }]}>Pick which apply to you. Everything else stays off — you can change this any time.</Text>
             </View>
 
-            <MascotPerch id="setup-items">
+            <MascotPerch id="setup-items" mood="working">
             <View style={[styles.card, { paddingVertical: 8, paddingHorizontal: 16 }]}>
               {items.map((i, idx) => (
                 <View key={i.id} style={[styles.setupRow, idx === items.length - 1 && { borderBottomWidth: 0 }]}>
@@ -153,6 +153,7 @@ export default function LifeScreen() {
             </View>
             </MascotPerch>
 
+            <MascotPerch id="routine-composer" mood="working" call={!!editingId}>
             <View style={[styles.card, { marginTop: 14 }]}>
               <Text style={[text.labelFaint, { marginBottom: 12 }]}>{editingId ? 'Edit routine item' : 'Add your own'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -216,6 +217,7 @@ export default function LifeScreen() {
                 </View>
               )}
             </View>
+            </MascotPerch>
 
             <Pressable onPress={() => setSetup(false)} style={styles.primaryBtn}>
               <Text style={text.button}>Save my routine</Text>
@@ -243,7 +245,7 @@ export default function LifeScreen() {
               const secItems = items.filter((i) => i.timeOfDay === s.key && i.enabled);
               if (secItems.length === 0) return null;
               return (
-                <MascotPerch key={s.key} id={`section-${s.key}`} style={{ marginBottom: 18 }}>
+                <MascotPerch key={s.key} id={`section-${s.key}`} mood="happy" style={{ marginBottom: 18 }}>
                   <View style={styles.sectionRule}>
                     <Text style={text.label}>{s.title}</Text>
                     <View style={styles.sectionLine} />

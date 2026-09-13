@@ -166,7 +166,7 @@ export default function TodayScreen() {
               </View>
             </View>
 
-            <MascotPerch id="energy">
+            <MascotPerch id="energy" mood="happy">
             <View style={styles.card}>
               <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
               <View style={styles.energyRow}>
@@ -187,7 +187,7 @@ export default function TodayScreen() {
             </View>
             </MascotPerch>
 
-            <MascotPerch id="progress">
+            <MascotPerch id="progress" mood="happy">
             <View style={[styles.card, styles.progressCard]}>
               <ProgressRing pct={pct} />
               <View style={{ flex: 1 }}>
@@ -209,14 +209,18 @@ export default function TodayScreen() {
               })}
             </ScrollView>
 
-            {composing && <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, saveTask, onCancel: () => setComposing(false) }} />}
+            {composing && (
+              <MascotPerch id="composer" mood="working" call>
+                <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, saveTask, onCancel: () => setComposing(false) }} />
+              </MascotPerch>
+            )}
 
             {matched.length > 0 && (
               <>
                 <SectionRule label="Matched to your energy" />
                 <View style={{ gap: 10 }}>
                   {matched.map((t) => (
-                    <MascotPerch key={t.id} id={`task-${t.id}`}>
+                    <MascotPerch key={t.id} id={`task-${t.id}`} mood={t.completed ? 'sleeping' : 'working'}>
                       <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />
                     </MascotPerch>
                   ))}
@@ -229,7 +233,7 @@ export default function TodayScreen() {
                 <SectionRule label={matched.length ? 'Everything else' : 'All tasks'} />
                 <View style={{ gap: 10 }}>
                   {rest.map((t) => (
-                    <MascotPerch key={t.id} id={`task-${t.id}`}>
+                    <MascotPerch key={t.id} id={`task-${t.id}`} mood={t.completed ? 'sleeping' : 'working'}>
                       <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />
                     </MascotPerch>
                   ))}
@@ -238,7 +242,9 @@ export default function TodayScreen() {
             )}
 
             {todays.length === 0 && (
-              <View style={styles.empty}><Text style={styles.emptyText}>Nothing today. A clear day is allowed.</Text></View>
+              <MascotPerch id="empty" mood="sleeping">
+                <View style={styles.empty}><Text style={styles.emptyText}>Nothing today. A clear day is allowed.</Text></View>
+              </MascotPerch>
             )}
           </>
         )}

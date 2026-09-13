@@ -1,12 +1,21 @@
 import { useContext, useEffect, useRef, type ReactNode } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { MascotRegistryContext, type PerchRect, type PerchSpot } from './registry';
+import {
+  MascotRegistryContext,
+  type MascotMood,
+  type PerchRect,
+  type PerchSpot,
+} from './registry';
 
 export interface MascotPerchProps {
   /** Unique within the screen. `task-12`, `energy`, `progress`, … */
   id: string;
+  /** What the mascot does here. Defaults to its resting state. */
+  mood?: MascotMood;
   spot?: PerchSpot;
+  /** While true, the mascot comes here and stays. One caller at a time. */
+  call?: boolean;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 }
@@ -21,7 +30,14 @@ export interface MascotPerchProps {
  * which is also what makes "roams the *active* tab" true without the mascot
  * needing to know anything about routing.
  */
-export function MascotPerch({ id, spot = 'top', style, children }: MascotPerchProps) {
+export function MascotPerch({
+  id,
+  mood = 'happy',
+  spot = 'top',
+  call = false,
+  style,
+  children,
+}: MascotPerchProps) {
   const registry = useContext(MascotRegistryContext);
   const ref = useRef<View>(null);
   const focused = useIsFocused();
@@ -38,9 +54,9 @@ export function MascotPerch({ id, spot = 'top', style, children }: MascotPerchPr
         });
       });
 
-    registry.add({ id, spot, measure });
+    registry.add({ id, mood, spot, call, measure });
     return () => registry.remove(id);
-  }, [registry, focused, id, spot]);
+  }, [registry, focused, id, mood, spot, call]);
 
   // collapsable={false} keeps the view in the native tree on Android, where a
   // layout-only View is otherwise flattened away and cannot be measured.

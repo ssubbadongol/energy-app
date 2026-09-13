@@ -70,7 +70,7 @@ export default function FocusScreen() {
         </View>
 
         {/* camera feed */}
-        <MascotPerch id="feed" spot="inside">
+        <MascotPerch id="feed" spot="inside" mood={granted && running ? 'working' : 'sleeping'}>
         <View style={styles.feed}>
           {granted && running ? (
             <CameraView style={StyleSheet.absoluteFill} facing="front" />
@@ -104,7 +104,7 @@ export default function FocusScreen() {
         </MascotPerch>
 
         {/* chart */}
-        <MascotPerch id="chart">
+        <MascotPerch id="chart" mood="happy">
         <View style={[styles.card, { marginTop: 14 }]}>
           <View style={styles.chartHead}>
             <Text style={text.cardTitle}>Last 3 minutes</Text>
@@ -124,7 +124,7 @@ export default function FocusScreen() {
         </MascotPerch>
 
         {/* stats */}
-        <MascotPerch id="stats">
+        <MascotPerch id="stats" mood="happy">
         <View style={styles.statsRow}>
           <View style={[styles.card, styles.statCard]}>
             <Text style={styles.statNum}>{drift}</Text>
