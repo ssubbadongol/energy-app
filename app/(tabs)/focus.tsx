@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Line, Path } from 'react-native-svg';
+import { MascotPerch } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
@@ -69,6 +70,7 @@ export default function FocusScreen() {
         </View>
 
         {/* camera feed */}
+        <MascotPerch id="feed" spot="inside">
         <View style={styles.feed}>
           {granted && running ? (
             <CameraView style={StyleSheet.absoluteFill} facing="front" />
@@ -99,8 +101,10 @@ export default function FocusScreen() {
             <Text style={styles.focusBadgePct}>% focus</Text>
           </View>
         </View>
+        </MascotPerch>
 
         {/* chart */}
+        <MascotPerch id="chart">
         <View style={[styles.card, { marginTop: 14 }]}>
           <View style={styles.chartHead}>
             <Text style={text.cardTitle}>Last 3 minutes</Text>
@@ -117,8 +121,10 @@ export default function FocusScreen() {
             <Text style={styles.axisLabel}>-3m</Text><Text style={styles.axisLabel}>-2m</Text><Text style={styles.axisLabel}>-1m</Text><Text style={styles.axisLabel}>now</Text>
           </View>
         </View>
+        </MascotPerch>
 
         {/* stats */}
+        <MascotPerch id="stats">
         <View style={styles.statsRow}>
           <View style={[styles.card, styles.statCard]}>
             <Text style={styles.statNum}>{drift}</Text>
@@ -129,6 +135,7 @@ export default function FocusScreen() {
             <Text style={styles.statLabel}>minutes settled</Text>
           </View>
         </View>
+        </MascotPerch>
 
         <Pressable onPress={() => setRunning((r) => !r)} style={[styles.toggle, running ? { backgroundColor: sage.fillGreenAlt } : { backgroundColor: sage.primary }]}>
           <Text style={[text.button, { color: running ? sage.primaryInk : sage.onPrimary }]}>{running ? 'Pause tracking' : 'Resume tracking'}</Text>

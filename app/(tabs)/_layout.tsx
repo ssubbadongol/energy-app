@@ -2,6 +2,7 @@ import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MascotProvider } from '@/components/mascot';
 import { font, sage } from '@/theme/sage';
 import { isOnboarded } from '../userProfileStorage';
 
@@ -39,64 +40,66 @@ export default function TabLayout() {
   if (gate === 'onboard') return <Redirect href="/onboarding" />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: sage.primaryDeep,
-        tabBarInactiveTintColor: sage.fgFaint,
-        tabBarStyle: {
-          backgroundColor: sage.surface,
-          borderTopWidth: 0,
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
-          elevation: 12,
-          shadowColor: '#587869',
-          shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: 0.09,
-          shadowRadius: 20,
-          height: 62 + insets.bottom,
-          paddingBottom: insets.bottom,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: {
-          fontFamily: font.heading,
-          fontSize: 10,
-          marginTop: 4,
-        },
-        sceneStyle: { backgroundColor: sage.bg },
-      }}
-    >
-      {/* The five tabs: Today · Life · Mentor · Pods · Focus */}
-      <Tabs.Screen
-        name="index"
-        options={{ title: 'Today', tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="life"
-        options={{ title: 'Life', tabBarIcon: ({ focused }) => <TabIcon emoji="🌱" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="mentor"
-        options={{ title: 'Mentor', tabBarIcon: ({ focused }) => <TabIcon emoji="🦊" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="pods"
-        options={{ title: 'Pods', tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="focus"
-        options={{ title: 'Focus', tabBarIcon: ({ focused }) => <TabIcon emoji="🎯" focused={focused} /> }}
-      />
+    <MascotProvider>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: sage.primaryDeep,
+          tabBarInactiveTintColor: sage.fgFaint,
+          tabBarStyle: {
+            backgroundColor: sage.surface,
+            borderTopWidth: 0,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            elevation: 12,
+            shadowColor: '#587869',
+            shadowOffset: { width: 0, height: -3 },
+            shadowOpacity: 0.09,
+            shadowRadius: 20,
+            height: 62 + insets.bottom,
+            paddingBottom: insets.bottom,
+            paddingTop: 8,
+          },
+          tabBarLabelStyle: {
+            fontFamily: font.heading,
+            fontSize: 10,
+            marginTop: 4,
+          },
+          sceneStyle: { backgroundColor: sage.bg },
+        }}
+      >
+        {/* The five tabs: Today · Life · Mentor · Pods · Focus */}
+        <Tabs.Screen
+          name="index"
+          options={{ title: 'Today', tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} /> }}
+        />
+        <Tabs.Screen
+          name="life"
+          options={{ title: 'Life', tabBarIcon: ({ focused }) => <TabIcon emoji="🌱" focused={focused} /> }}
+        />
+        <Tabs.Screen
+          name="mentor"
+          options={{ title: 'Mentor', tabBarIcon: ({ focused }) => <TabIcon emoji="🦊" focused={focused} /> }}
+        />
+        <Tabs.Screen
+          name="pods"
+          options={{ title: 'Pods', tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} /> }}
+        />
+        <Tabs.Screen
+          name="focus"
+          options={{ title: 'Focus', tabBarIcon: ({ focused }) => <TabIcon emoji="🎯" focused={focused} /> }}
+        />
 
-      {/* Routes kept reachable (via router.push) but off the tab bar */}
-      <Tabs.Screen name="all-tasks" options={{ href: null }} />
-      <Tabs.Screen name="add-task" options={{ href: null }} />
+        {/* Routes kept reachable (via router.push) but off the tab bar */}
+        <Tabs.Screen name="all-tasks" options={{ href: null }} />
+        <Tabs.Screen name="add-task" options={{ href: null }} />
 
-      {/* Hide files that have default exports but aren't real tabs */}
-      <Tabs.Screen name="LifeTaskModal" options={{ href: null }} />
-      <Tabs.Screen name="TaskEditModal" options={{ href: null }} />
-      <Tabs.Screen name="PinnedTaskBanner" options={{ href: null }} />
-    </Tabs>
+        {/* Hide files that have default exports but aren't real tabs */}
+        <Tabs.Screen name="LifeTaskModal" options={{ href: null }} />
+        <Tabs.Screen name="TaskEditModal" options={{ href: null }} />
+        <Tabs.Screen name="PinnedTaskBanner" options={{ href: null }} />
+      </Tabs>
+    </MascotProvider>
   );
 }
 

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+import { MascotPerch } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import {
   addTask,
@@ -165,6 +166,7 @@ export default function TodayScreen() {
               </View>
             </View>
 
+            <MascotPerch id="energy">
             <View style={styles.card}>
               <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
               <View style={styles.energyRow}>
@@ -183,7 +185,9 @@ export default function TodayScreen() {
               </View>
               <Text style={styles.insight}>{energyInsight[selectedEnergy]}</Text>
             </View>
+            </MascotPerch>
 
+            <MascotPerch id="progress">
             <View style={[styles.card, styles.progressCard]}>
               <ProgressRing pct={pct} />
               <View style={{ flex: 1 }}>
@@ -192,6 +196,7 @@ export default function TodayScreen() {
               </View>
               <Text style={styles.pctText}>{pct}%</Text>
             </View>
+            </MascotPerch>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ gap: 8 }}>
               {FILTERS.map((f) => {
@@ -210,7 +215,11 @@ export default function TodayScreen() {
               <>
                 <SectionRule label="Matched to your energy" />
                 <View style={{ gap: 10 }}>
-                  {matched.map((t) => <TaskCard key={t.id} task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />)}
+                  {matched.map((t) => (
+                    <MascotPerch key={t.id} id={`task-${t.id}`}>
+                      <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />
+                    </MascotPerch>
+                  ))}
                 </View>
               </>
             )}
@@ -219,7 +228,11 @@ export default function TodayScreen() {
               <>
                 <SectionRule label={matched.length ? 'Everything else' : 'All tasks'} />
                 <View style={{ gap: 10 }}>
-                  {rest.map((t) => <TaskCard key={t.id} task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />)}
+                  {rest.map((t) => (
+                    <MascotPerch key={t.id} id={`task-${t.id}`}>
+                      <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} />
+                    </MascotPerch>
+                  ))}
                 </View>
               </>
             )}
