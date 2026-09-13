@@ -55,16 +55,6 @@
       ]
     },
     {
-      "collectionGroup": "mentorMessages",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        {
-          "fieldPath": "createdAt",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "messages",
       "queryScope": "COLLECTION",
       "fields": [
@@ -114,6 +104,24 @@
         {
           "order": "ASCENDING",
           "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "mentorMessages",
+      "fieldPath": "createdAt",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
         }
       ]
     }
