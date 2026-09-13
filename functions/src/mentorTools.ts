@@ -9,7 +9,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { db } from './admin';
-import { paths } from './config';
+import { PROMPT_LIMITS, paths } from './config';
 
 export const TASK_TOOL_DECLARATIONS = [
   {
@@ -127,19 +127,34 @@ async function claimTaskId(uid: string) {
   return db.doc(paths.userTask(uid, String(Date.now() + Math.floor(Math.random() * 1000))));
 }
 
+/**
+ * Read the caller's tasks.
+ *
+ * Names and types are clamped on the way out. These documents are written
+ * directly by the client, and `list_tasks` feeds them straight back into the
+ * model as a functionResponse — so without a clamp, a task name is an
+ * arbitrary-length string the user can inject into their own prompt. Firestore
+ * rules bound the write; this bounds the read, which is the side that costs
+ * money.
+ */
 export async function readTasks(uid: string): Promise<TaskRecord[]> {
-  const snap = await db.collection(paths.userTasks(uid)).orderBy('createdAt', 'asc').limit(200).get();
+  const snap = await db
+    .collection(paths.userTasks(uid))
+    .orderBy('createdAt', 'asc')
+    .limit(PROMPT_LIMITS.taskListSize)
+    .get();
+
   return snap.docs.map((d) => {
     const data = d.data();
     return {
       id: d.id,
-      name: data.name ?? '',
+      name: String(data.name ?? '').slice(0, PROMPT_LIMITS.taskName),
       priority: data.priority ?? 'medium',
       energy: data.energy ?? 'medium',
-      time: data.time ?? 30,
-      type: data.type ?? 'General',
+      time: typeof data.time === 'number' ? data.time : 30,
+      type: String(data.type ?? 'General').slice(0, PROMPT_LIMITS.taskType),
       completed: data.completed === true,
-      dueDate: data.dueDate ?? null,
+      dueDate: data.dueDate ? String(data.dueDate).slice(0, 40) : null,
     };
   });
 }
@@ -159,7 +174,7 @@ export async function executeTaskTool(
   try {
     switch (name) {
       case 'add_task': {
-        const taskName = String(args.name ?? '').trim().slice(0, 200);
+        const taskName = String(args.name ?? '').trim().slice(0, PROMPT_LIMITS.taskName);
         if (!taskName) {
           return {
             response: { ok: false, error: 'A task needs a name.' },
@@ -172,7 +187,7 @@ export async function executeTaskTool(
           priority: coerceLevel(args.priority, 'medium'),
           energy: coerceLevel(args.energy, 'medium'),
           time: Number.isFinite(minutes) && minutes > 0 ? Math.min(Math.round(minutes), 24 * 60) : 30,
-          type: String(args.type ?? 'General').slice(0, 60),
+          type: String(args.type ?? 'General').slice(0, PROMPT_LIMITS.taskType),
           dueDate: args.dueDate ? String(args.dueDate).slice(0, 40) : null,
           completed: false,
           source: 'mentor',

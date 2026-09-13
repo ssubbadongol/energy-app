@@ -19,6 +19,7 @@ import {
   MENTOR_DAILY_LIMIT,
   MENTOR_HISTORY_TURNS,
   MENTOR_MAX_INPUT_CHARS,
+  PROMPT_LIMITS,
   paths,
 } from './config';
 import { requireProCaller } from './entitlements';
@@ -49,14 +50,35 @@ export interface MentorReply {
   degraded: 'rate_limited' | 'mentor_disabled' | 'model_error' | null;
 }
 
+/** Clamp one user-controlled string before it can reach a prompt. */
+function clamp(value: unknown, max: number): string {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+/**
+ * Load the profile that personalises the system instruction.
+ *
+ * Every string here is clamped. The profile is written by the client and
+ * replayed on *every* turn, so an unbounded field is not a display bug — it is
+ * a standing multiplier on the cost of every message this user ever sends.
+ * Firestore rules reject oversized writes too; this covers anything already
+ * stored and keeps the guarantee local to the code that depends on it.
+ */
 async function loadProfile(uid: string): Promise<MentorProfile> {
   const snap = await db.doc(paths.user(uid)).get();
   const data = snap.data() ?? {};
   const tone = data.mentorTone === 'Direct' ? 'Direct' : 'Gentle';
+
+  const strings = (value: unknown, max: number, count: number): string[] =>
+    Array.isArray(value)
+      ? value.slice(0, count).map((v) => clamp(v, max)).filter((v) => v.length > 0)
+      : [];
+
+  const name = clamp(data.name, PROMPT_LIMITS.profileName);
   return {
-    name: typeof data.name === 'string' && data.name.trim() ? data.name.trim() : null,
-    tags: Array.isArray(data.tags) ? data.tags.slice(0, 12).map(String) : [],
-    goals: Array.isArray(data.goals) ? data.goals.slice(0, 12).map(String) : [],
+    name: name.length > 0 ? name : null,
+    tags: strings(data.tags, PROMPT_LIMITS.profileTag, 12),
+    goals: strings(data.goals, PROMPT_LIMITS.profileGoal, 12),
     tone,
   };
 }
@@ -81,7 +103,9 @@ async function loadHistory(uid: string): Promise<GeminiContent[]> {
     .filter((m) => typeof m.text === 'string' && m.text.trim().length > 0)
     .map((m) => ({
       role: m.role === 'model' ? ('model' as const) : ('user' as const),
-      parts: [{ text: m.text as string }],
+      // Capped at send time, but rows written before that cap existed would
+      // otherwise be replayed in full on every subsequent turn.
+      parts: [{ text: (m.text as string).slice(0, MENTOR_MAX_INPUT_CHARS) }],
     }));
 }
 

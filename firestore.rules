@@ -71,6 +71,53 @@ service cloud.firestore {
       return ['pro', 'proExpiresAt', 'proProductId', 'proStore', 'proLastEvent', 'proUpdatedAt'];
     }
 
+    function shortString(value, max) {
+      return value is string && value.size() <= max;
+    }
+
+    /**
+     * Bound every profile string the mentor replays into its prompt.
+     *
+     * `name`, `tags` and `goals` are rebuilt into the system instruction on
+     * *every* mentor turn. A document may hold ~1MiB, so without these an
+     * oversized display name is a permanent multiplier on the cost of each
+     * message — not a cosmetic problem. The function clamps these too; this is
+     * the half that stops the oversized value ever being stored.
+     */
+    function validProfileStrings() {
+      return (!('name' in request.resource.data)
+                || request.resource.data.name == null
+                || shortString(request.resource.data.name, 60))
+        && (!('tags' in request.resource.data)
+                || (request.resource.data.tags is list && request.resource.data.tags.size() <= 12))
+        && (!('goals' in request.resource.data)
+                || (request.resource.data.goals is list && request.resource.data.goals.size() <= 12));
+    }
+
+    /**
+     * Task shape.
+     *
+     * Tasks are written by the device and read back into the mentor's context
+     * by `list_tasks`, which makes an unbounded task name a way to inject
+     * arbitrary length into your own prompt. `hasOnly` also stops a client
+     * smuggling in a field the server might later trust.
+     */
+    function validTask() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+               'name', 'priority', 'energy', 'time', 'type', 'completed',
+               'dueDate', 'createdAt', 'updatedAt', 'completedAt', 'source'
+             ])
+        && shortString(d.name, 200)
+        && d.name.size() > 0
+        && d.priority in ['high', 'medium', 'low']
+        && d.energy in ['high', 'medium', 'low']
+        && d.time is number && d.time >= 0 && d.time <= 1440
+        && shortString(d.type, 60)
+        && d.completed is bool
+        && (!('dueDate' in d) || d.dueDate == null || shortString(d.dueDate, 40));
+    }
+
     /* ---------------------------------------------------------------- *
      * Users
      * ---------------------------------------------------------------- */
@@ -85,16 +132,20 @@ service cloud.firestore {
        * cannot grant itself Pro by writing its own profile document.
        */
       allow create: if isSelf(uid)
-        && !request.resource.data.keys().hasAny(subscriptionFields());
+        && !request.resource.data.keys().hasAny(subscriptionFields())
+        && validProfileStrings();
 
       allow update: if isSelf(uid)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(subscriptionFields());
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(subscriptionFields())
+        && validProfileStrings();
 
       allow delete: if false;
 
       /* Tasks — private, and the mentor writes here server-side too. */
       match /tasks/{taskId} {
-        allow read, write: if isSelf(uid);
+        allow read: if isSelf(uid);
+        allow create, update: if isSelf(uid) && validTask();
+        allow delete: if isSelf(uid);
       }
 
       /* Mentor conversation — readable by its owner, written by the function. */

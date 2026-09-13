@@ -47,6 +47,38 @@ export const MENTOR_MAX_INPUT_CHARS = 2000;
 /** Longest pod message accepted (characters). Mirrored in Firestore rules. */
 export const POD_MAX_MESSAGE_CHARS = 500;
 
+/**
+ * Ceilings on anything user-controlled that ends up inside a prompt.
+ *
+ * These are a cost control, not a formatting preference. A Firestore document
+ * can hold ~1MiB, and both the profile and the task list are written by the
+ * client and then replayed to Gemini — the profile on *every* mentor turn, as
+ * part of the system instruction. Without a bound, one oversized display name
+ * turns a $0.0003 message into a $0.02 one for as long as it sits there, and a
+ * few hundred oversized tasks would exhaust the function's memory before the
+ * request even reached the model.
+ *
+ * Firestore rules enforce the same limits at write time; these are the second
+ * line, covering documents written before the rules existed and any path that
+ * bypasses them.
+ */
+export const PROMPT_LIMITS = {
+  profileName: 60,
+  profileTag: 40,
+  profileGoal: 120,
+  taskName: 200,
+  taskType: 60,
+  /** Tasks handed to the model in one `list_tasks` response. */
+  taskListSize: 60,
+} as const;
+
+/**
+ * Pod messages one member may post in a rolling window before the room starts
+ * dropping them. Flooding a five-person support room is a moderation problem
+ * long before it is a billing one, so this is set for the room's sake.
+ */
+export const POD_FLOOD_LIMIT = { messages: 12, windowMs: 60_000 } as const;
+
 /** How long a resolved kill-switch flag is cached in an instance (ms). */
 export const FLAGS_CACHE_TTL_MS = 60_000;
 
@@ -65,7 +97,7 @@ export const FLAGS_CACHE_TTL_MS = 60_000;
  * The guard that actually carries weight in a single-project setup is
  * `config/devAccess`: see DEV_ACCESS_DOC below.
  */
-export const DEV_PROJECT_IDS: readonly string[] = ['soft-focus'];
+export const DEV_PROJECT_IDS: readonly string[] = ['soft-focus-app'];
 
 /**
  * The uids permitted to grant themselves Pro, held in a server-only document.

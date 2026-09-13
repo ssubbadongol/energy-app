@@ -25,14 +25,35 @@
  */
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { db } from './admin';
-import { paths } from './config';
+import { POD_FLOOD_LIMIT, paths } from './config';
 import { getFlags } from './flags';
 import { classifyText, GeminiError, type HarmProbability, type SafetyRating } from './gemini';
 import { GEMINI_API_KEY } from './secrets';
 
-type ModerationStatus = 'ok' | 'support_offered' | 'redacted' | 'skipped' | 'error';
+type ModerationStatus = 'ok' | 'support_offered' | 'redacted' | 'skipped' | 'error' | 'rate_limited';
+
+/**
+ * How many messages this member has already posted to this pod in the window.
+ *
+ * Members write pod messages directly under Firestore rules — that is what
+ * makes a room feel live — and rules cannot count, so the only place a rate
+ * limit can live is here. Checking it *before* the classifier means a flood
+ * costs nothing at the model, and bounds the room damage to however many
+ * messages land in the second before this trigger catches up.
+ */
+async function recentMessageCount(podId: string, uid: string): Promise<number> {
+  const since = Timestamp.fromMillis(Date.now() - POD_FLOOD_LIMIT.windowMs);
+  const snap = await db
+    .collection(paths.podMessages(podId))
+    .where('uid', '==', uid)
+    .where('createdAt', '>=', since)
+    .select()
+    .limit(POD_FLOOD_LIMIT.messages + 1)
+    .get();
+  return snap.size;
+}
 
 const ORDER: Record<HarmProbability, number> = {
   NEGLIGIBLE: 0,
@@ -100,6 +121,24 @@ export const moderatePodMessage = onDocumentCreated(
     if (!flags.podModerationEnabled) {
       logger.warn('Pod moderation skipped — kill switch is engaged', { podId, messageId });
       await finish('skipped', { reason: 'moderation_disabled' });
+      return;
+    }
+
+    // Flood check before anything billable. A member who is past the limit has
+    // their message hidden rather than deleted: the author still sees that it
+    // did not land, and a human reviewing the room later sees the pattern.
+    const recent = await recentMessageCount(podId, uid);
+    if (recent > POD_FLOOD_LIMIT.messages) {
+      logger.warn('Pod message rate limited', { podId, messageId, uid, recent });
+      await snap.ref.update({
+        hidden: true,
+        expiresAt,
+        moderation: {
+          status: 'rate_limited' satisfies ModerationStatus,
+          checkedAt: FieldValue.serverTimestamp(),
+          reason: 'flood_limit',
+        },
+      });
       return;
     }
 

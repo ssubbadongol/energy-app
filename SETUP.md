@@ -3,7 +3,7 @@
 Everything the AI Mentor and Community Pods need that can't be done from the
 repo. Work top to bottom; each section says what breaks if you skip it.
 
-Firebase project: **soft-focus** · Functions region: **us-central1**
+Firebase project: **soft-focus-app** · Functions region: **us-central1**
 
 One project serves both development and production. That keeps the setup small,
 but it means dev builds write into the same Firestore real users read — so the
@@ -41,7 +41,7 @@ Create the project first, then upgrade it:
 
 ```bash
 firebase login
-firebase projects:create soft-focus --display-name "Soft Focus"
+firebase projects:create soft-focus-app --display-name "Soft Focus"
 ```
 
 If the id is taken, pick another and update `.firebaserc` and `DEV_PROJECT_IDS`
@@ -50,9 +50,9 @@ in `functions/src/config.ts` to match.
 Then register the apps and copy the config into `.env` (see §7):
 
 ```bash
-firebase apps:create web "Soft Focus Web" --project soft-focus
-firebase apps:create android com.tsuyo7.energyapp --project soft-focus
-firebase apps:create ios com.tsuyo7.energyapp --project soft-focus
+firebase apps:create web "Soft Focus Web" --project soft-focus-app
+firebase apps:create android com.tsuyo7.energyapp --project soft-focus-app
+firebase apps:create ios com.tsuyo7.energyapp --project soft-focus-app
 ```
 
 Enable **Anonymous** sign-in under Authentication → Sign-in method, and create
@@ -168,7 +168,7 @@ dashboard edit, not a release.
 
 RevenueCat → Project settings → **Integrations → Webhooks**:
 
-- **URL**: `https://us-central1-soft-focus.cloudfunctions.net/revenueCatWebhook`
+- **URL**: `https://us-central1-soft-focus-app.cloudfunctions.net/revenueCatWebhook`
 - **Authorization header**: the exact string you set as `REVENUECAT_WEBHOOK_SECRET`
 
 Send a test event and confirm a 200 in `firebase functions:log`.
@@ -188,7 +188,7 @@ Console-side, and the one part of the cost controls that can't be code.
 ### Create the Pub/Sub topic
 
 ```bash
-gcloud pubsub topics create softfocus-billing-alerts --project soft-focus
+gcloud pubsub topics create softfocus-billing-alerts --project soft-focus-app
 ```
 
 The topic name must match `BILLING_TOPIC` in `functions/src/budget.ts`.
@@ -197,7 +197,7 @@ The topic name must match `BILLING_TOPIC` in `functions/src/budget.ts`.
 
 [console.cloud.google.com/billing → Budgets & alerts](https://console.cloud.google.com/billing) → **Create budget**:
 
-1. **Scope** — filter to project `soft-focus`. Optionally narrow to the
+1. **Scope** — filter to project `soft-focus-app`. Optionally narrow to the
    *Generative Language API* service to budget the model spend specifically.
 2. **Amount** — your monthly cap.
 3. **Thresholds** — add **50%**, **90%** and **100%** of *actual* spend.
@@ -222,7 +222,7 @@ an error.
 
 ```bash
 gcloud pubsub topics publish softfocus-billing-alerts \
-  --project soft-focus \
+  --project soft-focus-app \
   --message '{"budgetDisplayName":"test","costAmount":95,"budgetAmount":100,"alertThresholdExceeded":0.9}'
 ```
 
@@ -315,7 +315,7 @@ wrong build is obvious.
 
 ### All three variants share one Firebase project
 
-`soft-focus` is the only backend, so the dev build and the store build read and
+`soft-focus-app` is the only backend, so the dev build and the store build read and
 write the same Firestore. Two consequences worth holding on to:
 
 - Pods you create while testing are **real pods** other users can be matched
