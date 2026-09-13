@@ -1,252 +1,354 @@
-import { signInAnonymously } from 'firebase/auth';
+/**
+ * Community Pods — client.
+ *
+ * Split by trust: joining and leaving go through Cloud Functions (a client
+ * must never be able to mint a room or add itself to one), while reading and
+ * posting go straight to Firestore so the room feels live.
+ *
+ * Posting directly is safe because the rules pin the message shape exactly —
+ * the author's own uid, the alias matchmaking gave them, `moderation.status`
+ * of `pending`, and nothing else. The moderation trigger takes it from there.
+ */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  Timestamp,
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
-  increment,
-  limit,
+  limit as fsLimit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
-  Timestamp,
-  updateDoc,
-  where
+  where,
 } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { FunctionsError } from 'firebase/functions';
+import { callable, db, ensureAuth } from './firebase';
 
-// Ensure user is authenticated
-export const ensureAuth = async () => {
-  if (!auth.currentUser) {
-    await signInAnonymously(auth);
+/* ------------------------------------------------------------------ *
+ * Types
+ * ------------------------------------------------------------------ */
+
+export type PodDuration = '24h' | '7d';
+
+export const POD_TOPICS = [
+  'Getting started',
+  'Quiet co-study',
+  'Executive dysfunction',
+  'Anxiety spiral',
+  'Sensory reset',
+  'Late-night work',
+] as const;
+
+export const POD_SUPPORT_STYLES = ['Listening', 'Practical', 'Body doubling'] as const;
+
+export const POD_MAX_MEMBERS = 5;
+
+/** Remembers which room this device is in, so resuming costs two reads. */
+const CURRENT_POD_KEY = '@sf_current_pod';
+
+export interface Pod {
+  id: string;
+  topic: string;
+  supportStyle: string;
+  duration: PodDuration;
+  memberCount: number;
+  expiresAt: Date | null;
+  isActive: boolean;
+}
+
+export interface PodMessage {
+  id: string;
+  type: 'user' | 'system';
+  text: string;
+  uid: string | null;
+  alias: string | null;
+  hidden: boolean;
+  /** 'pending' until the safety check finishes; 'redacted' if it was removed. */
+  moderationStatus: string;
+  createdAt: Date | null;
+  /** True when this message was written by the person reading it. */
+  mine: boolean;
+}
+
+export interface Membership {
+  podId: string;
+  alias: string;
+  topic: string;
+  supportStyle: string;
+  duration: PodDuration;
+  memberCount: number;
+  expiresAt: string;
+  created: boolean;
+}
+
+export type PodBlockReason = 'needs_pro' | 'unverified_build' | 'signed_out' | 'paused' | 'unknown';
+
+export class PodUnavailable extends Error {
+  constructor(readonly reason: PodBlockReason, message: string) {
+    super(message);
+    this.name = 'PodUnavailable';
   }
-  return auth.currentUser!.uid;
-};
+}
 
-// Find or create a pod
-export const findOrCreatePod = async (
-  struggle: string,
-  supportStyle: string,
-  duration: string
-): Promise<string> => {
-  const userId = await ensureAuth();
-
-  // First check if user is already in a pod
-  const existingPod = await getUserPod();
-  if (existingPod) {
-    // User already in a pod, leave it first
-    await leavePod(existingPod.id);
+function toPodError(err: unknown): PodUnavailable {
+  const code = err instanceof FunctionsError ? err.code : '';
+  const message = err instanceof FunctionsError ? err.message : 'Something went wrong.';
+  switch (code) {
+    case 'functions/permission-denied':
+      return new PodUnavailable('needs_pro', 'Pods are part of Soft Focus Pro.');
+    case 'functions/failed-precondition':
+      return new PodUnavailable('unverified_build', 'This app build could not be verified.');
+    case 'functions/unauthenticated':
+      return new PodUnavailable('signed_out', 'Sign in again to join a pod.');
+    case 'functions/unavailable':
+      return new PodUnavailable('paused', message);
+    default:
+      console.warn('[pods] Unexpected failure', err);
+      return new PodUnavailable('unknown', 'Could not reach the pods right now.');
   }
+}
 
-  // Search for existing pods matching criteria
-  const podsRef = collection(db, 'pods');
+/* ------------------------------------------------------------------ *
+ * Browsing
+ * ------------------------------------------------------------------ */
+
+/**
+ * Rooms with a free seat.
+ *
+ * Expiry and seat count are filtered here rather than in the query so the
+ * whole list needs one composite index instead of several, and so a pod that
+ * expires between the read and the render still disappears.
+ */
+export async function listOpenPods(max = 30): Promise<Pod[]> {
   const q = query(
-    podsRef,
-    where('struggle', '==', struggle),
+    collection(db, 'pods'),
     where('isActive', '==', true),
-    where('memberCount', '<', 5),
-    orderBy('memberCount', 'asc'),
-    limit(1)
+    orderBy('expiresAt', 'asc'),
+    fsLimit(max * 2),
   );
 
-  const snapshot = await getDocs(q);
+  const snap = await getDocs(q);
+  const now = Date.now();
 
-  let podId: string;
+  return snap.docs
+    .map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        topic: data.topic ?? 'Pod',
+        supportStyle: data.supportStyle ?? 'Listening',
+        duration: (data.duration ?? '24h') as PodDuration,
+        memberCount: data.memberCount ?? 0,
+        expiresAt: data.expiresAt?.toDate?.() ?? null,
+        isActive: data.isActive === true,
+      };
+    })
+    .filter((p) => (p.expiresAt?.getTime() ?? 0) > now)
+    .slice(0, max);
+}
 
-  if (!snapshot.empty) {
-    // Join existing pod
-    const existingPod = snapshot.docs[0];
-    podId = existingPod.id;
+/**
+ * The room this device is currently in, if any.
+ *
+ * The pod id is remembered locally so this costs two document reads rather
+ * than scanning every open room and checking membership one by one — that
+ * version ran on every app open and grew with the size of the product.
+ *
+ * A local pointer is exactly as durable as the account it belongs to:
+ * membership is tied to an anonymous uid, which is itself device-bound, so
+ * there is no case where the pointer is lost but the membership survives.
+ */
+export async function getCurrentMembership(): Promise<{ podId: string; alias: string; pod: Pod } | null> {
+  try {
+    const podId = await AsyncStorage.getItem(CURRENT_POD_KEY);
+    if (!podId) return null;
 
-    // Check if not expired
-    const podData = existingPod.data();
-    if (isPodExpired(podData)) {
-      // Pod expired, create new one instead
-      podId = await createNewPod(struggle, supportStyle, duration, userId);
-    } else {
-      // Add member
-      await addDoc(collection(db, `pods/${podId}/members`), {
-        userId,
-        joinedAt: serverTimestamp(),
-      });
+    const uid = await ensureAuth();
+    const [podDoc, member] = await Promise.all([
+      getDoc(doc(db, 'pods', podId)),
+      getDoc(doc(db, 'pods', podId, 'members', uid)),
+    ]);
 
-      // Increment member count
-      await updateDoc(doc(db, 'pods', podId), {
-        memberCount: increment(1),
-      });
-
-      // Add system message
-      await addDoc(collection(db, `pods/${podId}/messages`), {
-        type: 'system',
-        text: 'Someone new joined the pod 👋',
-        createdAt: serverTimestamp(),
-      });
+    if (!podDoc.exists() || !member.exists() || member.data()?.active !== true) {
+      await AsyncStorage.removeItem(CURRENT_POD_KEY);
+      return null;
     }
-  } else {
-    // Create new pod
-    podId = await createNewPod(struggle, supportStyle, duration, userId);
+
+    const data = podDoc.data();
+    const expiresAt = data.expiresAt?.toDate?.() ?? null;
+    // A closed room is not a membership — forget it rather than showing a
+    // dead pod the listener would never populate.
+    if (data.isActive !== true || !expiresAt || expiresAt.getTime() <= Date.now()) {
+      await AsyncStorage.removeItem(CURRENT_POD_KEY);
+      return null;
+    }
+
+    const alias = member.data()?.alias ?? 'You';
+    aliasCache.set(podId, alias);
+
+    return {
+      podId,
+      alias,
+      pod: {
+        id: podId,
+        topic: data.topic ?? 'Pod',
+        supportStyle: data.supportStyle ?? 'Listening',
+        duration: (data.duration ?? '24h') as PodDuration,
+        memberCount: data.memberCount ?? 1,
+        expiresAt,
+        isActive: true,
+      },
+    };
+  } catch (err) {
+    console.warn('[pods] Could not resolve current membership', err);
+    return null;
   }
+}
 
-  return podId;
-};
+/* ------------------------------------------------------------------ *
+ * Joining and leaving (server-side)
+ * ------------------------------------------------------------------ */
 
-// Create a new pod
-const createNewPod = async (
-  struggle: string,
+export async function joinPod(
+  topic: string,
   supportStyle: string,
-  duration: string,
-  userId: string
-): Promise<string> => {
-  const expiresAt = duration === '24h'
-    ? Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
-    : Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-
-  // Create pod
-  const podRef = await addDoc(collection(db, 'pods'), {
-    struggle,
-    supportStyle,
-    duration,
-    memberCount: 1,
-    isActive: true,
-    createdAt: serverTimestamp(),
-    expiresAt,
-  });
-
-  // Add member
-  await addDoc(collection(db, `pods/${podRef.id}/members`), {
-    userId,
-    joinedAt: serverTimestamp(),
-  });
-
-  // Add welcome message
-  await addDoc(collection(db, `pods/${podRef.id}/messages`), {
-    type: 'system',
-    text: 'Welcome to your pod! 💙 Be kind and supportive.',
-    createdAt: serverTimestamp(),
-  });
-
-  return podRef.id;
-};
-
-// Get user's current pod
-export const getUserPod = async () => {
+  duration: PodDuration,
+): Promise<Membership> {
   try {
-    const userId = await ensureAuth();
-
-    // Search all pods for user's membership
-    const podsSnapshot = await getDocs(collection(db, 'pods'));
-
-    for (const podDoc of podsSnapshot.docs) {
-      const membersRef = collection(db, `pods/${podDoc.id}/members`);
-      const memberQuery = query(membersRef, where('userId', '==', userId));
-      const memberSnapshot = await getDocs(memberQuery);
-
-      if (!memberSnapshot.empty) {
-        // User is a member of this pod
-        const podData = podDoc.data();
-        
-        // Check if expired
-        if (isPodExpired(podData)) {
-          // Auto-leave expired pod
-          await leavePod(podDoc.id);
-          return null;
-        }
-
-        return {
-          id: podDoc.id,
-          ...podData,
-        };
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error getting user pod:', error);
-    return null;
+    const fn = callable<{ topic: string; supportStyle: string; duration: string }, Membership>('joinPod');
+    const { data } = await fn({ topic, supportStyle, duration });
+    aliasCache.set(data.podId, data.alias);
+    await AsyncStorage.setItem(CURRENT_POD_KEY, data.podId);
+    return data;
+  } catch (err) {
+    throw toPodError(err);
   }
-};
+}
 
-// Leave a pod
-export const leavePod = async (podId: string) => {
+export async function leavePod(podId: string): Promise<void> {
   try {
-    const userId = await ensureAuth();
-
-    // Find and delete member document
-    const membersRef = collection(db, `pods/${podId}/members`);
-    const memberQuery = query(membersRef, where('userId', '==', userId));
-    const memberSnapshot = await getDocs(memberQuery);
-
-    if (memberSnapshot.empty) {
-      console.log('User not a member of this pod - skipping');
-      return;
-    }
-
-    // Delete member document
-    await deleteDoc(memberSnapshot.docs[0].ref);
-
-    // Decrement member count
-    const podRef = doc(db, 'pods', podId);
-    const podDoc = await getDoc(podRef);
-    
-    if (podDoc.exists()) {
-      const currentCount = podDoc.data().memberCount || 1;
-      const newCount = Math.max(0, currentCount - 1); // Prevent negative
-      
-      await updateDoc(podRef, {
-        memberCount: newCount,
-        isActive: newCount > 0, // Deactivate if no members
-      });
-
-      // Add system message only if pod still has members
-      if (newCount > 0) {
-        await addDoc(collection(db, `pods/${podId}/messages`), {
-          type: 'system',
-          text: 'Someone left the pod 👋',
-          createdAt: serverTimestamp(),
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Error leaving pod:', error);
-    throw error;
+    const fn = callable<{ podId: string }, { ok: true }>('leavePod');
+    await fn({ podId });
+  } catch (err) {
+    throw toPodError(err);
+  } finally {
+    // Clear the local pointer either way. If the server call failed we still
+    // want the user out of the room rather than stuck staring at it.
+    aliasCache.delete(podId);
+    await AsyncStorage.removeItem(CURRENT_POD_KEY).catch(() => undefined);
   }
-};
+}
 
-// Subscribe to pod messages
-export const subscribeToPodMessages = (
+/* ------------------------------------------------------------------ *
+ * Messages
+ * ------------------------------------------------------------------ */
+
+const aliasCache = new Map<string, string>();
+
+/**
+ * The alias matchmaking assigned in this pod.
+ *
+ * The rules compare every posted message against it, so a stale or guessed
+ * value fails the write rather than posting under the wrong name.
+ */
+async function getAlias(podId: string, uid: string): Promise<string> {
+  const cached = aliasCache.get(podId);
+  if (cached) return cached;
+
+  const snap = await getDoc(doc(db, 'pods', podId, 'members', uid));
+  const alias = snap.data()?.alias;
+  if (!alias) throw new PodUnavailable('unknown', "You're not in this pod any more.");
+  aliasCache.set(podId, alias);
+  return alias;
+}
+
+export function subscribeToPodMessages(
   podId: string,
-  callback: (messages: any[]) => void
-) => {
-  const messagesRef = collection(db, `pods/${podId}/messages`);
-  const q = query(messagesRef, orderBy('createdAt', 'asc'));
+  onChange: (messages: PodMessage[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  let unsubscribe: (() => void) | null = null;
+  let cancelled = false;
 
-  return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    callback(messages);
-  });
-};
+  ensureAuth()
+    .then((uid) => {
+      if (cancelled) return;
+      const q = query(collection(db, 'pods', podId, 'messages'), orderBy('createdAt', 'asc'), fsLimit(200));
+      unsubscribe = onSnapshot(
+        q,
+        (snap) => {
+          const messages = snap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              type: data.type === 'system' ? ('system' as const) : ('user' as const),
+              text: data.text ?? '',
+              uid: data.uid ?? null,
+              alias: data.alias ?? null,
+              hidden: data.hidden === true,
+              moderationStatus: data.moderation?.status ?? 'pending',
+              createdAt: data.createdAt?.toDate?.() ?? null,
+              mine: data.uid === uid,
+            };
+          });
+          onChange(messages);
+        },
+        (err) => {
+          console.warn('[pods] Message listener failed', err);
+          onError?.(err);
+        },
+      );
+    })
+    .catch((err) => onError?.(err));
 
-// Send a message
-export const sendMessage = async (podId: string, text: string) => {
-  const userId = await ensureAuth();
-  await addDoc(collection(db, `pods/${podId}/messages`), {
+  return () => {
+    cancelled = true;
+    unsubscribe?.();
+  };
+}
+
+/**
+ * Post to a pod.
+ *
+ * The shape here is not cosmetic — it is exactly what the security rules
+ * accept. `moderation.status` starts at `pending` and only the moderation
+ * function may move it, and `expiresAt` is deliberately absent so nobody can
+ * outlive the room they are posting in.
+ */
+export async function sendPodMessage(podId: string, text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  if (trimmed.length > 500) {
+    throw new PodUnavailable('unknown', 'Messages are limited to 500 characters.');
+  }
+
+  const uid = await ensureAuth();
+  const alias = await getAlias(podId, uid);
+
+  await addDoc(collection(db, 'pods', podId, 'messages'), {
+    uid,
+    alias,
     type: 'user',
-    text,
-    userId,
+    text: trimmed,
     createdAt: serverTimestamp(),
+    hidden: false,
+    moderation: { status: 'pending' },
   });
-};
+}
 
-// Check if pod is expired
-export const isPodExpired = (pod: any): boolean => {
-  if (!pod || !pod.expiresAt) return false;
-  const now = new Date();
-  const expiresAt = pod.expiresAt.toDate ? pod.expiresAt.toDate() : new Date(pod.expiresAt);
-  return now > expiresAt;
-};
+/** "closes in 9h" / "closes in 4d", for the room header. */
+export function formatExpiry(expiresAt: Date | string | null): string {
+  if (!expiresAt) return '';
+  const end = typeof expiresAt === 'string' ? new Date(expiresAt) : expiresAt;
+  const ms = end.getTime() - Date.now();
+  if (ms <= 0) return 'closed';
+  const hours = Math.round(ms / 3_600_000);
+  if (hours < 1) return 'closes soon';
+  if (hours < 48) return `closes in ${hours}h`;
+  return `closes in ${Math.round(hours / 24)}d`;
+}
+
+export { Timestamp };

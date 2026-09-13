@@ -7,6 +7,7 @@ import { SageBackground } from '@/components/sage/Background';
 import { curve, energy, type EnergyKey, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 import { getLifeTasks, initializeLifeTasks, updateLifeTasks } from './lifeTaskStorage';
 import { type EnergyTier, type MentorTone, saveUserProfile, setOnboarded } from './userProfileStorage';
+import { syncProfileToFirestore } from './userDoc';
 
 /* Everyday-basics groups → the lifeTaskStorage default ids they enable. */
 const BASICS: { key: string; emoji: string; label: string; sub: string; ids: string[] }[] = [
@@ -19,16 +20,43 @@ const BASICS: { key: string; emoji: string; label: string; sub: string; ids: str
   { key: 'winddown', emoji: '😴', label: 'Wind down', sub: 'ease into sleep', ids: ['wind-down'] },
 ];
 
-const TOTAL = 7; // steps 0..6
+/**
+ * What the AI Mentor personalises from.
+ *
+ * These are self-described, optional, and never diagnostic — they only change
+ * the mentor's system prompt (how it paces, what it leads with). They are
+ * mirrored to `users/{uid}.tags`, which is where the Cloud Function reads them.
+ */
+const SUPPORT_TAGS = [
+  'ADHD',
+  'Anxiety',
+  'Autism',
+  'Depression',
+  'Stress',
+  'Focus issues',
+  'Overwhelm',
+  'Sleep problems',
+] as const;
+
+const TOTAL = 8; // steps 0..7
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [energyPick, setEnergyPick] = useState<EnergyKey>('mid');
+  const [tags, setTags] = useState<Set<string>>(new Set());
   const [basics, setBasics] = useState<Set<string>>(new Set(['meals', 'hydration', 'winddown']));
   const [tone, setTone] = useState<MentorTone>('Gentle');
   const [focusOn, setFocusOn] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const toggleTag = (tag: string) =>
+    setTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
 
   const toggleBasic = (key: string) =>
     setBasics((prev) => {
@@ -54,6 +82,11 @@ export default function Onboarding() {
         defaultEnergy: energyPick as EnergyTier,
         focusEnabled: focusOn,
       });
+      // Mirror the parts the mentor personalises from up to Firestore. The
+      // Cloud Function reads them there — it never sees the device — so a
+      // failure here means a blander mentor, not a broken onboarding.
+      await syncProfileToFirestore({ tags: [...tags] }).catch(() => undefined);
+
       await setOnboarded(true);
       router.replace('/');
     } catch (error) {
@@ -110,6 +143,26 @@ export default function Onboarding() {
 
           {step === 2 && (
             <View>
+              <Text style={styles.q}>What brings you here?</Text>
+              <Text style={styles.qSub}>
+                Pick anything that fits. Your mentor uses this to change how it talks to you — nothing is
+                shown to anyone else, and you can skip this entirely.
+              </Text>
+              <View style={styles.tagWrap}>
+                {SUPPORT_TAGS.map((t) => {
+                  const on = tags.has(t);
+                  return (
+                    <Pressable key={t} onPress={() => toggleTag(t)} style={[styles.tag, on && styles.tagOn]}>
+                      <Text style={[styles.tagText, on && styles.tagTextOn]}>{t}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {step === 3 && (
+            <View>
               <Text style={styles.q}>What&apos;s your energy usually like?</Text>
               <Text style={styles.qSub}>We&apos;ll start your day matched to this — you can nudge it any time.</Text>
               <View style={{ gap: 10, marginTop: 4 }}>
@@ -127,7 +180,7 @@ export default function Onboarding() {
             </View>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <View>
               <Text style={styles.q}>Which everyday basics should we keep gently in view?</Text>
               <Text style={styles.qSub}>Pick what applies. These become your Life routine — add, remove, or retime them later.</Text>
@@ -151,7 +204,7 @@ export default function Onboarding() {
             </View>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <View>
               <Text style={styles.q}>How should your mentor talk to you?</Text>
               <Text style={styles.qSub}>Your call, and you can switch whenever.</Text>
@@ -175,7 +228,7 @@ export default function Onboarding() {
             </View>
           )}
 
-          {step === 5 && (
+          {step === 6 && (
             <View>
               <Text style={styles.q}>Turn on focus tracking?</Text>
               <Text style={styles.qSub}>Focus sessions use your front camera, entirely on-device, to notice when you drift and nudge you back. The video never leaves your phone.</Text>
@@ -199,7 +252,7 @@ export default function Onboarding() {
             </View>
           )}
 
-          {step === 6 && (
+          {step === 7 && (
             <View style={styles.center}>
               <View style={styles.doneCircle}><Check size={34} color={sage.onPrimary} strokeWidth={3} /></View>
               <Text style={styles.bigTitle}>{name.trim() ? `You're all set, ${name.trim()}` : "You're all set"}</Text>
@@ -251,6 +304,12 @@ const styles = StyleSheet.create({
   basicLabel: { fontFamily: font.heading, fontSize: 15.5, color: sage.fgBody },
   basicSub: { fontFamily: font.body, fontSize: 12, color: sage.fgMuted, marginTop: 2 },
   checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+
+  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 4 },
+  tag: { backgroundColor: sage.surface, borderRadius: 15, borderWidth: 2, borderColor: 'transparent', paddingVertical: 11, paddingHorizontal: 15, ...shadow.soft, ...curve },
+  tagOn: { borderColor: sage.leafSoft, backgroundColor: sage.fillGreenAlt },
+  tagText: { fontFamily: font.ui, fontSize: 14, color: sage.fgSecondary },
+  tagTextOn: { color: sage.primaryDeep },
 
   toneCard: { backgroundColor: sage.surface, borderRadius: radius.card, borderWidth: 2, borderColor: 'transparent', padding: 18, ...shadow.soft, ...curve },
   toneCardOn: { borderColor: sage.leafSoft, backgroundColor: sage.fillGreenAlt },

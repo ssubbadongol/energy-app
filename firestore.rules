@@ -1,0 +1,215 @@
+rules_version = '2';
+
+/**
+ * Soft Focus security rules.
+ *
+ * Three things every Mentor/Pods path must independently satisfy:
+ *
+ *   1. App Check  — the request came from a genuine build of the app, not a
+ *                   script, a modified client, or curl.
+ *   2. Auth       — there is a real (anonymous) Firebase user.
+ *   3. Entitlement— Pro, read from the server-written mirror on the user doc.
+ *
+ * The entitlement is never read from anything the client controls. `pro` on
+ * the user document is writable only by the Admin SDK (see the field guard in
+ * /users/{uid}), so a client cannot grant itself access by writing its own
+ * profile. Cloud Functions bypass these rules entirely and do their own
+ * custom-claim check, so both surfaces are covered.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---------------------------------------------------------------- *
+     * Helpers
+     * ---------------------------------------------------------------- */
+
+    function verifiedApp() {
+      return request.app != null;
+    }
+
+    function signedIn() {
+      return request.auth != null && verifiedApp();
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    /**
+     * Pro, from the server-written mirror.
+     *
+     * The custom claim is checked first because it is free — it rides along in
+     * the token. The Firestore mirror covers the window after a purchase but
+     * before the client has refreshed its token, and the case where a token is
+     * up to an hour stale.
+     */
+    function proClaim() {
+      return request.auth.token.pro == true;
+    }
+
+    function proMirror() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pro == true;
+    }
+
+    function isPro() {
+      return signedIn() && (proClaim() || proMirror());
+    }
+
+    function membership(podId) {
+      return get(/databases/$(database)/documents/pods/$(podId)/members/$(request.auth.uid)).data;
+    }
+
+    function isPodMember(podId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/pods/$(podId)/members/$(request.auth.uid))
+        && membership(podId).active == true;
+    }
+
+    /** Fields only the server may ever set. */
+    function subscriptionFields() {
+      return ['pro', 'proExpiresAt', 'proProductId', 'proStore', 'proLastEvent', 'proUpdatedAt'];
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Users
+     * ---------------------------------------------------------------- */
+
+    match /users/{uid} {
+      allow read: if isSelf(uid);
+
+      /**
+       * A user owns their profile, but not their entitlement. Every
+       * subscription field is server-only: a write that touches one is
+       * rejected outright rather than silently ignored, so a modified client
+       * cannot grant itself Pro by writing its own profile document.
+       */
+      allow create: if isSelf(uid)
+        && !request.resource.data.keys().hasAny(subscriptionFields());
+
+      allow update: if isSelf(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(subscriptionFields());
+
+      allow delete: if false;
+
+      /* Tasks — private, and the mentor writes here server-side too. */
+      match /tasks/{taskId} {
+        allow read, write: if isSelf(uid);
+      }
+
+      /* Mentor conversation — readable by its owner, written by the function. */
+      match /mentorMessages/{messageId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      /* Daily rate-limit counter — server-only, or the cap means nothing. */
+      match /counters/{counterId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
+      /**
+       * Crisis-support offers. Written by the moderation function; the owner
+       * may only mark one acknowledged, never create or delete one.
+       */
+      match /supportPrompts/{promptId} {
+        allow read: if isSelf(uid);
+        allow update: if isSelf(uid)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['acknowledgedAt', 'dismissed']);
+        allow create, delete: if false;
+      }
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Pods
+     * ---------------------------------------------------------------- */
+
+    match /pods/{podId} {
+      /**
+       * Browsing open rooms is a Pro feature. Pod documents carry no message
+       * content — topic, seat count and expiry only.
+       */
+      allow read: if isPro();
+
+      /* Creating and mutating rooms is the matchmaking function's job alone. */
+      allow write: if false;
+
+      /**
+       * Membership is private to the member it describes. Nobody can
+       * enumerate who is in a room; the seat count on the pod doc is all
+       * anyone else needs.
+       */
+      match /members/{memberId} {
+        allow read: if isSelf(memberId);
+        allow write: if false;
+      }
+
+      match /messages/{messageId} {
+        /* Only members read the room, and only while they hold Pro. */
+        allow read: if isPodMember(podId) && isPro();
+
+        /**
+         * Members post their own messages directly — that is what makes the
+         * room feel live. The shape is pinned here so a modified client cannot
+         * post as someone else, pre-mark itself moderated, or smuggle in a
+         * field the moderation trigger would then trust.
+         */
+        allow create: if isPodMember(podId)
+          && isPro()
+          && request.resource.data.uid == request.auth.uid
+          // The alias must be the one matchmaking handed this member, so a
+          // modified client cannot post in someone else's name.
+          && request.resource.data.alias == membership(podId).alias
+          && request.resource.data.type == 'user'
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.moderation.status == 'pending'
+          && request.resource.data.hidden == false
+          // `expiresAt` is stamped server-side from the pod, so nobody can
+          // give their own messages a longer life than the room.
+          && request.resource.data.keys().hasOnly(
+               ['uid', 'alias', 'type', 'text', 'createdAt', 'moderation', 'hidden']
+             );
+
+        /**
+         * Nobody edits or deletes a posted message — not even its author.
+         * Redaction and flagging are the moderation function's decisions, and
+         * letting an author delete would let them remove evidence of abuse.
+         */
+        allow update, delete: if false;
+      }
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Server-only collections
+     * ---------------------------------------------------------------- */
+
+    /* Human review queue. No client ever reads or writes this. */
+    match /moderationFlags/{flagId} {
+      allow read, write: if false;
+    }
+
+    /* RevenueCat webhook idempotency records. */
+    match /revenueCatEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    /**
+     * Kill switches. Readable so the client can show an honest notice instead
+     * of a generic error; writable only by the budget function.
+     */
+    match /config/flags {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    /* Default deny for anything not named above. */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -46,3 +46,13 @@ node_modules
 .env
 build
 /.vs
+
+# Firebase native config (per-project, keep out of git)
+google-services.json
+GoogleService-Info.plist
+
+# Cloud Functions build output
+functions/lib/
+
+# Env example is committed; real env files are not
+!.env.example

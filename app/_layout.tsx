@@ -31,6 +31,7 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { handleNotificationResponse, setupNotifications } from './(tabs)/notificationService';
+import { EntitlementProvider } from '@/components/pro/EntitlementProvider';
 import { sage } from '@/theme/sage';
 
 export const unstable_settings = {
@@ -98,11 +99,20 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: paper.bg }}>
       <SafeAreaProvider>
         <ThemeProvider value={navTheme}>
-          <Stack screenOptions={{ contentStyle: { backgroundColor: paper.bg } }}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-          </Stack>
+          {/*
+            App Check and RevenueCat are both initialised inside this provider,
+            before any screen can call a Pro-gated function. Wrapping the whole
+            stack means the Mentor and Pods tabs never disagree about whether
+            the user is subscribed.
+          */}
+          <EntitlementProvider>
+            <Stack screenOptions={{ contentStyle: { backgroundColor: paper.bg } }}>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
+              <Stack.Screen name="paywall" options={{ headerShown: false, presentation: 'modal' }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+            </Stack>
+          </EntitlementProvider>
           {/* Dark glyphs: the app is warm paper, not a dark theme. */}
           <StatusBar style="dark" />
         </ThemeProvider>
