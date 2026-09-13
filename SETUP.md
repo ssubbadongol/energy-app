@@ -3,7 +3,12 @@
 Everything the AI Mentor and Community Pods need that can't be done from the
 repo. Work top to bottom; each section says what breaks if you skip it.
 
-Firebase project: **leedshack26** · Functions region: **us-central1**
+Firebase project: **soft-focus** · Functions region: **us-central1**
+
+One project serves both development and production. That keeps the setup small,
+but it means dev builds write into the same Firestore real users read — so the
+dev Pro grant in §9.6 is guarded by an explicit uid allowlist rather than by
+project isolation.
 
 ---
 
@@ -29,15 +34,31 @@ Nothing here belongs in git. `.env`, `google-services.json` and
 ## 0.5 Enable billing (do this first)
 
 Cloud Functions v2 — which is every function in this repo — **cannot deploy on
-the Spark plan**. As of writing, `leedshack26` has billing disabled, so
-`firebase deploy --only functions` will fail before it uploads anything.
+the Spark plan**, because they make outbound calls (Gemini, RevenueCat) and
+Google requires billing for that regardless of volume.
+
+Create the project first, then upgrade it:
 
 ```bash
 firebase login
-firebase projects:list
+firebase projects:create soft-focus --display-name "Soft Focus"
 ```
 
-Then Firebase Console → ⚙ → **Usage and billing** → **Details & settings** →
+If the id is taken, pick another and update `.firebaserc` and `DEV_PROJECT_IDS`
+in `functions/src/config.ts` to match.
+
+Then register the apps and copy the config into `.env` (see §7):
+
+```bash
+firebase apps:create web "Soft Focus Web" --project soft-focus
+firebase apps:create android com.tsuyo7.energyapp --project soft-focus
+firebase apps:create ios com.tsuyo7.energyapp --project soft-focus
+```
+
+Enable **Anonymous** sign-in under Authentication → Sign-in method, and create
+the Firestore database (production mode, `us-central1` to match the functions).
+
+Finally, Firebase Console → ⚙ → **Usage and billing** → **Details & settings** →
 **Modify plan** → **Blaze**. Attach a billing account and set a budget alert in
 the same sitting (§6 wires that budget to the kill switch).
 
@@ -147,7 +168,7 @@ dashboard edit, not a release.
 
 RevenueCat → Project settings → **Integrations → Webhooks**:
 
-- **URL**: `https://us-central1-leedshack26.cloudfunctions.net/revenueCatWebhook`
+- **URL**: `https://us-central1-soft-focus.cloudfunctions.net/revenueCatWebhook`
 - **Authorization header**: the exact string you set as `REVENUECAT_WEBHOOK_SECRET`
 
 Send a test event and confirm a 200 in `firebase functions:log`.
@@ -167,7 +188,7 @@ Console-side, and the one part of the cost controls that can't be code.
 ### Create the Pub/Sub topic
 
 ```bash
-gcloud pubsub topics create softfocus-billing-alerts --project leedshack26
+gcloud pubsub topics create softfocus-billing-alerts --project soft-focus
 ```
 
 The topic name must match `BILLING_TOPIC` in `functions/src/budget.ts`.
@@ -176,7 +197,7 @@ The topic name must match `BILLING_TOPIC` in `functions/src/budget.ts`.
 
 [console.cloud.google.com/billing → Budgets & alerts](https://console.cloud.google.com/billing) → **Create budget**:
 
-1. **Scope** — filter to project `leedshack26`. Optionally narrow to the
+1. **Scope** — filter to project `soft-focus`. Optionally narrow to the
    *Generative Language API* service to budget the model spend specifically.
 2. **Amount** — your monthly cap.
 3. **Thresholds** — add **50%**, **90%** and **100%** of *actual* spend.
@@ -201,7 +222,7 @@ an error.
 
 ```bash
 gcloud pubsub topics publish softfocus-billing-alerts \
-  --project leedshack26 \
+  --project soft-focus \
   --message '{"budgetDisplayName":"test","costAmount":95,"budgetAmount":100,"alertThresholdExceeded":0.9}'
 ```
 
@@ -292,21 +313,22 @@ Each variant also carries a launcher-icon tint and an in-app corner badge
 (`components/BuildBadge.tsx`, silent in production), so a screenshot from the
 wrong build is obvious.
 
-### Separate Firebase projects
+### All three variants share one Firebase project
 
-A dev build writing throwaway pods and sandbox entitlements into the production
-project pollutes exactly the data real users read. Both halves are switchable
-without touching code:
+`soft-focus` is the only backend, so the dev build and the store build read and
+write the same Firestore. Two consequences worth holding on to:
 
-- **JS SDK** — set the `EXPO_PUBLIC_FIREBASE_*` vars in `.env` (see
-  `.env.example`). Blank falls back to the committed project.
-- **Native SDK** — drop `google-services.dev.json` /
-  `GoogleService-Info.dev.plist` in the repo root. `app.config.ts` prefers the
-  variant-suffixed file and falls back to the unsuffixed one.
+- Pods you create while testing are **real pods** other users can be matched
+  into. Close them, or test while nobody else is on.
+- The dev Pro grant has no project boundary protecting it, which is why §9.6
+  gates it on an explicit uid allowlist.
 
-Recommended split: keep `leedshack26` as **dev** (it is a hackathon project
-with hackathon data in it) and create a clean project for production. When you
-do, leave the new project **out** of `DEV_PROJECT_IDS` — see below.
+Splitting later needs no code change. Point a variant at another project by
+setting `EXPO_PUBLIC_FIREBASE_*` for the JS SDK and dropping
+`google-services.dev.json` / `GoogleService-Info.dev.plist` in the repo root
+for the native one — `app.config.ts` prefers the variant-suffixed file and
+falls back to the unsuffixed one. Then leave the production project **out** of
+`DEV_PROJECT_IDS` and that guard starts doing real work.
 
 ---
 
@@ -316,20 +338,39 @@ Developing anything behind the paywall means a sandbox purchase per device per
 rebuild. `grantDevPro` short-circuits that with a **24-hour** `pro` claim, and
 `revokeDevPro` hands it back so the locked state is equally easy to reach.
 
-The control lives at the bottom of the paywall, dev builds only. Three guards
+The control lives at the bottom of the paywall, dev builds only. Four guards
 all have to pass:
 
-1. The runtime project must be in `DEV_PROJECT_IDS` (`functions/src/config.ts`).
-   An allowlist, not a denylist — forgetting to update it breaks dev grants
-   rather than giving away the subscription. **Never add your production
-   project to it.**
+1. **Your uid must be on the allowlist.** Create a server-only document —
+   nothing in `firestore.rules` grants clients this path, so the catch-all deny
+   covers it:
+
+   ```
+   Firestore -> config/devAccess -> uids: ["<your uid>"]   (array of strings)
+   ```
+
+   Find your uid in Authentication → Users, or log it from the app. This is the
+   guard that matters: with one project, it is what keeps "the flag got left
+   on" from meaning "the subscription is free for anyone who asks".
+
 2. `config/flags.devProEnabled` must be explicitly `true`. It is the one flag
    that defaults to *false*, so a fresh project refuses until you turn it on:
 
    ```
    Firestore -> config/flags -> devProEnabled: true  (boolean)
    ```
-3. Normal auth + App Check, as with every other callable.
+
+3. The runtime project must be in `DEV_PROJECT_IDS` (`functions/src/config.ts`).
+   A no-op while there is one project; a real guard the day there are two.
+
+4. Normal auth + App Check, as with every other callable.
+
+A caller who fails guard 1 or 3 gets `not-found`, not `permission-denied` — to
+anyone who is not a developer this function should look like it was never
+deployed.
+
+**Turn `devProEnabled` off before you take real money.** It is a switch to flip
+on and off, not one to leave on.
 
 Grants are stamped `proStore: 'dev_override'`, so they are distinguishable in
 the data and a real RevenueCat event overwrites them cleanly.

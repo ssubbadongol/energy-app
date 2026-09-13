@@ -21,24 +21,45 @@ import { getFunctions, httpsCallable, type HttpsCallable } from 'firebase/functi
 /**
  * Project config.
  *
- * These values are not secrets — they identify the project, and Firestore
- * rules plus App Check are what actually protect it — but which project a
- * build talks to is very much a per-variant decision. A dev build writing
- * throwaway pods and sandbox entitlements into the production project would
- * pollute exactly the data a real user reads.
+ * Not secrets — these identify the project, and Firestore rules plus App Check
+ * are what actually protect it — but they are environment, so they come from
+ * `.env` rather than from source. There is deliberately no fallback: a
+ * hardcoded default is how a build ends up quietly talking to the wrong
+ * backend, and the previous default pointed at a hackathon project that no
+ * longer exists.
  *
- * So each value is overridable from the environment, with the current project
- * as the committed fallback. Pointing a dev build at its own Firebase project
- * is then a matter of filling in `.env`, not editing code.
+ * Values come from Firebase Console -> Project settings -> Your apps -> SDK
+ * setup and configuration. See `.env.example`.
  */
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'AIzaSyC49xk0IY6ER-NLetAgDu9Pk7cSsilKCPg',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'leedshack26.firebaseapp.com',
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'leedshack26',
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'leedshack26.firebasestorage.app',
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_SENDER_ID ?? '314817464747',
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '1:314817464747:web:d2940c5697afab3564aaee',
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
+
+/**
+ * Complain clearly rather than crashing.
+ *
+ * Tasks, Focus and onboarding are local-first and still work without a
+ * backend; it is Mentor, Pods and cross-device sync that will not. Booting
+ * into a usable app with one loud line in the log beats a white screen that
+ * says `auth/invalid-api-key` from four frames deep — and it matches how
+ * `appCheck.ts` handles a missing native module.
+ */
+const missing = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missing.length > 0) {
+  console.error(
+    `[firebase] Missing config: ${missing.join(', ')}. ` +
+      'Copy .env.example to .env and fill in the EXPO_PUBLIC_FIREBASE_* values from ' +
+      'Firebase Console -> Project settings -> Your apps. Mentor, Pods and sync will not work until you do.',
+  );
+}
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 

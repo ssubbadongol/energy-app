@@ -39,7 +39,7 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
       err?.code === 'functions/failed-precondition'
         ? 'Dev Pro is off. Set devProEnabled: true on config/flags in Firestore.'
         : err?.code === 'functions/not-found'
-          ? 'This backend is not a development project — dev grants are disabled there.'
+          ? 'Not available for this account. Add your uid to config/devAccess in Firestore (SETUP.md §9.6).'
           : (err?.message ?? 'Dev Pro call failed.');
     console.warn(`[devPro] ${name} failed`, err);
     return { pro: false, expiresAt: null, error: message };

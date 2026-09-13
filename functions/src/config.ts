@@ -55,15 +55,33 @@ export const FLAGS_CACHE_TTL_MS = 60_000;
  * ------------------------------------------------------------------ */
 
 /**
- * Projects where `grantDevPro` is permitted to hand out a Pro claim without a
- * purchase. An allowlist, not a denylist: forgetting to add a project here
- * breaks dev grants, whereas forgetting to remove one from a denylist would
- * give away the subscription.
+ * Projects where `grantDevPro` may hand out a Pro claim without a purchase.
  *
- * When you create a separate production project, it simply never goes in this
- * list — that omission is the entire safety mechanism, so do not "fix" it.
+ * Soft Focus runs a *single* project, so this list contains the production
+ * project and therefore isolates nothing. It is kept because it costs nothing
+ * and becomes a real guard the day a separate staging project appears — but
+ * until then, read it as documentation, not protection.
+ *
+ * The guard that actually carries weight in a single-project setup is
+ * `config/devAccess`: see DEV_ACCESS_DOC below.
  */
-export const DEV_PROJECT_IDS: readonly string[] = ['leedshack26'];
+export const DEV_PROJECT_IDS: readonly string[] = ['soft-focus'];
+
+/**
+ * The uids permitted to grant themselves Pro, held in a server-only document.
+ *
+ * This is the barrier that matters. With one project, `devProEnabled` left on
+ * by accident would otherwise mean anyone running the app can take the
+ * subscription for free; with an explicit uid list, the blast radius of that
+ * mistake is the handful of people already building the thing.
+ *
+ * No Firestore rule grants access to this path, so the catch-all deny at the
+ * bottom of `firestore.rules` makes it unreadable to every client. Populate it
+ * by hand in the console:
+ *
+ *   config/devAccess -> { uids: ["<your anonymous uid>"] }
+ */
+export const DEV_ACCESS_DOC = 'config/devAccess';
 
 /** How long a dev Pro grant lasts before it expires on its own. */
 export const DEV_PRO_TTL_MS = 24 * 60 * 60 * 1000;
