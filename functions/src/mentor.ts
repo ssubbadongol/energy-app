@@ -262,7 +262,16 @@ export const mentorChat = onCall(
           effects.push(outcome.effect);
 
           // Feed the call and its result back so the model can narrate it.
-          contents.push({ role: 'model', parts: [{ functionCall: { name, args } }] });
+          //
+          // The part is replayed exactly as received rather than rebuilt from
+          // `{ name, args }`: Gemini 3.x attaches a `thoughtSignature` to a
+          // function call and rejects the next turn with 400 if it is missing.
+          // Reconstructing the part silently dropped it, so every turn that
+          // used a tool failed while plain conversation worked.
+          contents.push({
+            role: 'model',
+            parts: [result.functionCallPart ?? { functionCall: { name, args } }],
+          });
           contents.push({
             role: 'user',
             parts: [{ functionResponse: { name, response: outcome.response } }],
