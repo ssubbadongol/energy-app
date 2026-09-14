@@ -46,19 +46,35 @@ function loadNativeModule(): any | null {
   if (nativeAppCheck) return nativeAppCheck;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { firebase } = require('@react-native-firebase/app-check');
-    nativeAppCheck = firebase.appCheck();
+    nativeAppCheck = require('@react-native-firebase/app-check');
     return nativeAppCheck;
-  } catch {
+  } catch (err) {
+    // Logged rather than swallowed: "module not available" and "module threw
+    // on load" are different problems with the same symptom, and the second
+    // one is invisible otherwise.
+    console.warn('[AppCheck] Could not load @react-native-firebase/app-check:', (err as Error)?.message ?? err);
     return null;
   }
 }
 
-async function configureNative(): Promise<any | null> {
-  const appCheck = loadNativeModule();
-  if (!appCheck) return null;
+/**
+ * Configure and initialise the native provider.
+ *
+ * v26 of `@react-native-firebase/app-check` exports only the modular API —
+ * the namespaced `firebase.appCheck()` accessor this used to call no longer
+ * exists, so it threw, got caught, and reported the module as unavailable.
+ * The shape here is the current one: build the provider, hand it to
+ * `initializeAppCheck(nativeApp, options)`, and keep the returned instance to
+ * pass to `getToken`.
+ */
+async function configureNative(): Promise<{ instance: any; mod: any } | null> {
+  const mod = loadNativeModule();
+  if (!mod) return null;
 
-  const provider = appCheck.newReactNativeFirebaseAppCheckProvider();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getApp } = require('@react-native-firebase/app');
+
+  const provider = new mod.ReactNativeFirebaseAppCheckProvider();
   provider.configure({
     android: {
       provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity',
@@ -70,8 +86,12 @@ async function configureNative(): Promise<any | null> {
     },
   });
 
-  await appCheck.initializeAppCheck({ provider, isTokenAutoRefreshEnabled: true });
-  return appCheck;
+  const instance = mod.initializeAppCheck(getApp(), {
+    provider,
+    isTokenAutoRefreshEnabled: true,
+  });
+
+  return { instance, mod };
 }
 
 /**
@@ -86,7 +106,7 @@ export async function setupAppCheck(): Promise<boolean> {
   if (initialised) return true;
 
   const native = await configureNative().catch((err) => {
-    console.warn('[AppCheck] Native provider failed to configure:', err);
+    console.warn('[AppCheck] Native provider failed to configure:', (err as Error)?.message ?? err);
     return null;
   });
 
@@ -103,7 +123,7 @@ export async function setupAppCheck(): Promise<boolean> {
     provider: new CustomProvider({
       getToken: async () => {
         try {
-          const { token } = await native.getToken(/* forceRefresh */ false);
+          const { token } = await native.mod.getToken(native.instance, /* forceRefresh */ false);
           if (!token) throw new Error('Native App Check returned an empty token');
           return { token, expireTimeMillis: Date.now() + TOKEN_TTL_MS };
         } catch (err) {
