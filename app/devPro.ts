@@ -44,7 +44,13 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
       err?.code === 'functions/failed-precondition'
         ? 'Dev Pro is off. Set devProEnabled: true on config/flags in Firestore.'
         : err?.code === 'functions/unauthenticated'
-          ? 'Not signed in. Anonymous auth may be disabled for this Firebase project.'
+          // Every callable sets `enforceAppCheck`, and the Functions SDK
+          // rejects a missing App Check token *before* the handler runs — as
+          // `unauthenticated`, not `failed-precondition`. So this code almost
+          // always means attestation, not sign-in, and saying "you are not
+          // signed in" sends you looking in the wrong place. Ask for both, in
+          // the order they actually fail.
+          ? 'Request was not verified. Check the App Check debug token is registered for this app, and that anonymous auth is enabled.'
         : err?.code === 'functions/not-found'
           ? 'Not available for this account. Add your uid to config/devAccess in Firestore (SETUP.md §9.6).'
           : (err?.message ?? 'Dev Pro call failed.');
