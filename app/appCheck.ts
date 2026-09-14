@@ -102,14 +102,33 @@ export async function setupAppCheck(): Promise<boolean> {
   initialised = initializeAppCheck(app, {
     provider: new CustomProvider({
       getToken: async () => {
-        const { token } = await native.getToken(/* forceRefresh */ false);
-        return { token, expireTimeMillis: Date.now() + TOKEN_TTL_MS };
+        try {
+          const { token } = await native.getToken(/* forceRefresh */ false);
+          if (!token) throw new Error('Native App Check returned an empty token');
+          return { token, expireTimeMillis: Date.now() + TOKEN_TTL_MS };
+        } catch (err) {
+          // Without this the failure is invisible: the JS SDK swallows a
+          // rejected getToken and simply sends the request with no App Check
+          // header, so the server reports `app: MISSING` and the client sees
+          // a generic `unauthenticated`. The cause never surfaces anywhere.
+          console.error(
+            '[AppCheck] Could not mint a token:',
+            (err as Error)?.message ?? err,
+            `| provider=${__DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity'}`,
+            `| debugTokenSet=${Boolean(DEBUG_TOKEN)}`,
+            '| If provider=debug, that token must be registered under Firebase Console',
+            '-> App Check -> your app -> Manage debug tokens.',
+          );
+          throw err;
+        }
       },
     }),
     isTokenAutoRefreshEnabled: true,
   });
 
-  console.log(`[AppCheck] Active (${Platform.OS})`);
+  console.log(
+    `[AppCheck] Active (${Platform.OS}) provider=${__DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity'}`,
+  );
   return true;
 }
 
