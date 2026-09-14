@@ -41,6 +41,7 @@ import {
   type MentorUsage,
   type TaskEffect,
 } from '../aiMentorService';
+import { formatReminderTime, scheduleMentorReminder } from '../reminderService';
 import { syncTasksFromFirestore } from '../taskStorage';
 import { syncProfileToFirestore } from '../userDoc';
 import { loadUserProfile, type MentorTone } from '../userProfileStorage';
@@ -146,6 +147,20 @@ function MentorChat() {
         // the local store so the Today tab agrees with what it just said.
         if (turn.tasksChanged) {
           await syncTasksFromFirestore();
+        }
+
+        // The mentor can ask for a reminder but cannot deliver one — the
+        // effect says what to show and how far out, and the phone schedules
+        // it locally. Done after the reply lands so a denied notification
+        // permission never costs the user their message.
+        for (const effect of turn.taskEffects) {
+          if (!effect.reminder) continue;
+          const scheduled = await scheduleMentorReminder(effect.reminder);
+          setBanner(
+            scheduled
+              ? `Reminder set for ${formatReminderTime(scheduled.at)}.`
+              : 'Could not set that reminder — notifications are turned off for Soft Focus.',
+          );
         }
         // The listener delivers the persisted turn, so nothing is appended here.
       } catch (err) {

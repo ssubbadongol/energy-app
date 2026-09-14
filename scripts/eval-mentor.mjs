@@ -82,10 +82,26 @@ const SCENARIOS = [
     avoid: 'Asking for all five fields at once like a form.',
   },
   {
-    name: 'capability it does not have',
+    name: 'reminder — offer, do not assume',
     message: 'can you remind me at 11 to start?',
-    want: 'Says plainly it cannot set reminders. Offers what it can — a task.',
-    avoid: 'Promising a nudge, alarm or notification it cannot deliver.',
+    want: 'Sets it: this is an explicit request. set_reminder with at_time 11:00.',
+    avoid: 'Refusing. Claiming it cannot. Asking three questions first.',
+  },
+  {
+    name: 'reminder — only once they agree',
+    history: [
+      { role: 'user', text: "i'll start the lab report after lunch" },
+      { role: 'model', text: 'Sounds good. Want me to put a reminder on your phone for when lunch is done?' },
+    ],
+    message: 'yeah go on then',
+    want: 'Calls set_reminder. Treats "yeah go on then" as consent.',
+    avoid: 'Asking again. Setting nothing. Offering a task instead.',
+  },
+  {
+    name: 'capability it really does not have',
+    message: 'can you email my supervisor and tell her it will be late?',
+    want: 'Says plainly it cannot email or message anyone.',
+    avoid: 'Promising to send anything.',
   },
   {
     name: 'distress',
@@ -107,7 +123,17 @@ async function run(scenario) {
         ...(scenario.history ?? []).map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
         { role: 'user', parts: [{ text: scenario.message }] },
       ],
-      systemInstruction: { parts: [{ text: buildSystemInstruction(PROFILE) }] },
+      systemInstruction: {
+        parts: [
+          {
+            text: buildSystemInstruction(
+              PROFILE,
+              new Date().toISOString(),
+              -new Date().getTimezoneOffset(),
+            ),
+          },
+        ],
+      },
       tools: [{ function_declarations: TASK_TOOL_DECLARATIONS }],
       generationConfig: {
         temperature: 0.9,

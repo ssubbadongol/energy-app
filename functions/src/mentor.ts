@@ -27,7 +27,7 @@ import { getFlags } from './flags';
 import { consumeMentorCall, readMentorUsage, refundMentorCall } from './rateLimit';
 import { generateContent, GeminiError, MENTOR_SAFETY_SETTINGS, type GeminiContent } from './gemini';
 import { GEMINI_API_KEY } from './secrets';
-import { executeTaskTool, TASK_TOOL_DECLARATIONS, type ToolEffect } from './mentorTools';
+import { executeTaskTool, localWallClock, TASK_TOOL_DECLARATIONS, type ToolEffect } from './mentorTools';
 
 /** Most a single turn may bounce between the model and Firestore. */
 const MAX_TOOL_ROUNDS = 3;
@@ -123,12 +123,27 @@ async function loadHistory(uid: string): Promise<GeminiContent[]> {
  * Exported for `scripts/eval-mentor.mjs`, which replays fixed scenarios
  * through this exact text so changes here can be judged rather than guessed.
  */
-export function buildSystemInstruction(profile: MentorProfile): string {
+export function buildSystemInstruction(
+  profile: MentorProfile,
+  clientNow?: string,
+  tzOffsetMinutes?: number,
+): string {
   const { name, tags, goals, tone } = profile;
 
   const who = name ? `They go by ${name}. ` : '';
   const identifies = tags.length ? `They identify with: ${tags.join(', ')}. ` : '';
   const working = goals.length ? `They are currently working on: ${goals.join('; ')}. ` : '';
+
+  // Formatted in the client's own offset, because that string is what "now"
+  // means to the person reading the reply.
+  const localTime = (() => {
+    const d = localWallClock(clientNow, tzOffsetMinutes);
+    if (!d) return '';
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()];
+    return `It is ${hh}:${mm} on ${day} where they are. Use that when they mention a time.`;
+  })();
 
   const voice =
     tone === 'Direct'
@@ -146,6 +161,7 @@ export function buildSystemInstruction(profile: MentorProfile): string {
     'You are the Soft Focus mentor: a warm, honest, practical companion for a neurodivergent student.',
     '',
     `${who}${identifies}${working}`.trim(),
+    localTime,
     voice,
     '',
     'How you talk:',
@@ -177,8 +193,14 @@ export function buildSystemInstruction(profile: MentorProfile): string {
     '- Never invent a task the user did not ask for, and never delete without a clear request.',
     '- After a tool runs, say plainly what you did in one short sentence.',
     '',
+    'Reminders:',
+    '- set_reminder puts a notification on their phone. Offer one when a time matters — a deadline, a plan to start later, something they said they would come back to.',
+    '- Offer first and set it only once they agree. A yes, a "sure", or naming a time in reply all count. Never set one they did not ask for or accept.',
+    '- Give minutes_from_now for "in an hour", at_time in 24-hour HH:MM for "at 11". Never both.',
+    '- Write the notification as one short line addressed to them, since it arrives with no context around it.',
+    '',
     'Limits:',
-    '- Tasks are the only thing you can actually do. You cannot set reminders, alarms or notifications, and you cannot message them later. Never offer to.',
+    '- Tasks and reminders are the only things you can actually do. You cannot message them later, email, call, or act outside this app. Never offer to.',
     '- You are not a therapist or a doctor, and you do not diagnose.',
     '- If they describe self-harm, hopelessness, not seeing the point, being unsafe, or a crisis: stay with them, be calm and human, do not lecture, and gently mention that Samaritans (116 123, UK, free, 24/7) is there if they want a person to talk to. Do not refuse to talk to them.',
   ]
@@ -219,7 +241,7 @@ export const mentorChat = onCall(
     timeoutSeconds: 60,
     maxInstances: 20,
   },
-  async (request: CallableRequest<{ message?: string }>): Promise<MentorReply> => {
+  async (request: CallableRequest<{ message?: string; clientNow?: string; tzOffsetMinutes?: number }>): Promise<MentorReply> => {
     const { uid } = await requireProCaller(request);
 
     const message = String(request.data?.message ?? '').trim();
@@ -256,8 +278,17 @@ export const mentorChat = onCall(
       return { reply, taskEffects: [], tasksChanged: false, usage, degraded: 'rate_limited' };
     }
 
+    // The user's own clock. Without it the mentor cannot place "at 11" — a
+    // server in us-central1 resolving that against its own time would be
+    // hours out — and it cannot say "it's already gone nine" either.
+    const clientNow = typeof request.data?.clientNow === 'string' ? request.data.clientNow : undefined;
+    const tzOffsetMinutes =
+      typeof request.data?.tzOffsetMinutes === 'number' && Math.abs(request.data.tzOffsetMinutes) <= 14 * 60
+        ? request.data.tzOffsetMinutes
+        : 0;
+
     const [profile, history] = await Promise.all([loadProfile(uid), loadHistory(uid)]);
-    const systemInstruction = buildSystemInstruction(profile);
+    const systemInstruction = buildSystemInstruction(profile, clientNow, tzOffsetMinutes);
 
     const contents: GeminiContent[] = [...history, { role: 'user', parts: [{ text: message }] }];
     const effects: ToolEffect[] = [];
@@ -287,7 +318,7 @@ export const mentorChat = onCall(
 
         if (result.functionCall) {
           const { name, args } = result.functionCall;
-          const outcome = await executeTaskTool(uid, name, args);
+          const outcome = await executeTaskTool(uid, name, args, { clientNow, tzOffsetMinutes });
           effects.push(outcome.effect);
 
           // Feed the call and its result back so the model can narrate it.

@@ -100,6 +100,25 @@ export const PROMPT_LIMITS = {
  */
 export const POD_FLOOD_LIMIT = { messages: 12, windowMs: 60_000 } as const;
 
+/* ------------------------------------------------------------------ *
+ * Reminders
+ * ------------------------------------------------------------------ */
+
+/**
+ * Bounds on a mentor-set reminder.
+ *
+ * The mentor cannot schedule anything itself — it returns an effect and the
+ * device schedules a local notification — so these are about what is sensible
+ * to promise, not about cost. A reminder further out than a week is almost
+ * certainly the model misreading a date, and a notification body long enough
+ * to be truncated by the OS is worse than a short one.
+ */
+export const REMINDER_LIMITS = {
+  maxTextChars: 120,
+  minMinutes: 1,
+  maxMinutes: 7 * 24 * 60,
+} as const;
+
 /** How long a resolved kill-switch flag is cached in an instance (ms). */
 export const FLAGS_CACHE_TTL_MS = 60_000;
 

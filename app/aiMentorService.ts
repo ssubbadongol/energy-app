@@ -14,11 +14,13 @@ import { callable, callableErrorCode, db, ensureAuth } from './firebase';
 import { getRemoteProfile } from './userDoc';
 
 export interface TaskEffect {
-  tool: 'add_task' | 'list_tasks' | 'complete_task' | 'delete_task' | string;
+  tool: 'add_task' | 'list_tasks' | 'complete_task' | 'delete_task' | 'set_reminder' | string;
   ok: boolean;
   summary: string;
   taskId?: string;
   taskName?: string;
+  /** Set by `set_reminder`; the device schedules it. See `reminderService`. */
+  reminder?: { text: string; inMinutes: number };
 }
 
 export interface MentorMessage {
@@ -137,8 +139,20 @@ export function subscribeToConversation(
 /** Send one turn. Persistence happens server-side, in the same call. */
 export async function sendMessageToMentor(message: string): Promise<MentorTurn> {
   try {
-    const fn = callable<{ message: string }, MentorTurn>('mentorChat');
-    const { data } = await fn({ message });
+    const fn = callable<
+      { message: string; clientNow: string; tzOffsetMinutes: number },
+      MentorTurn
+    >('mentorChat');
+    // The server cannot place "at 11" without the user's clock, and it has no
+    // way to infer a timezone from an anonymous account. The offset has to go
+    // with it: toISOString() is UTC and Cloud Functions run in UTC, so the
+    // timestamp alone would resolve every wall-clock time in the wrong zone.
+    // getTimezoneOffset is minutes *behind* UTC, hence the negation.
+    const { data } = await fn({
+      message,
+      clientNow: new Date().toISOString(),
+      tzOffsetMinutes: -new Date().getTimezoneOffset(),
+    });
     return data;
   } catch (err) {
     throw toMentorError(err);
