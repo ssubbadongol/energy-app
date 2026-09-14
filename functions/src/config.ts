@@ -23,6 +23,20 @@ export const GEMINI_ENDPOINT = (model: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
 /**
+ * How much invisible reasoning the model may spend.
+ *
+ * Thinking tokens are billed like output and never shown to the user, so we
+ * want as few as the model will accept. On 2.5 that was `thinkingBudget: 0`;
+ * Gemini 3.x rejects a zero budget outright with a 400, which fails *every*
+ * request rather than degrading, so the setting is now a named constant
+ * instead of a literal buried in the request body.
+ *
+ * Measured on gemini-3.5-flash-lite: `minimal` returned the fewest tokens of
+ * the accepted options and reported no thought tokens at all.
+ */
+export const THINKING_CONFIG = { thinkingLevel: 'minimal' } as const;
+
+/**
  * Output-token ceilings. These are the primary per-call cost lever, so they
  * are deliberately tight.
  *

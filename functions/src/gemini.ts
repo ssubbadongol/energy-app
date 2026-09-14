@@ -6,7 +6,7 @@
  * safety settings visible at the call site instead of buried in a wrapper.
  */
 import { logger } from 'firebase-functions/v2';
-import { GEMINI_ENDPOINT, GEMINI_MODEL, MAX_OUTPUT_TOKENS } from './config';
+import { GEMINI_ENDPOINT, GEMINI_MODEL, MAX_OUTPUT_TOKENS, THINKING_CONFIG } from './config';
 
 export type HarmCategory =
   | 'HARM_CATEGORY_HARASSMENT'
@@ -106,9 +106,10 @@ export async function generateContent(opts: GenerateOptions): Promise<GenerateRe
       temperature,
       topP: 0.95,
       maxOutputTokens,
-      // Flash-Lite can still spend tokens on reasoning. We want none of that:
-      // it is invisible to the user and billed like output.
-      thinkingConfig: { thinkingBudget: 0 },
+      // Flash-Lite can still spend tokens on reasoning. We want as little of
+      // that as the model allows: it is invisible to the user and billed like
+      // output. See THINKING_CONFIG for why this is not a zero budget.
+      thinkingConfig: THINKING_CONFIG,
     },
     safetySettings,
   };
