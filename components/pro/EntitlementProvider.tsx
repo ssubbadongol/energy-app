@@ -18,6 +18,7 @@ import {
   type EntitlementState,
 } from '@/app/entitlements';
 import { setupAppCheck } from '@/app/appCheck';
+import { ensureAuth } from '@/app/firebase';
 
 interface EntitlementContextValue extends EntitlementState {
   /** Re-read entitlement (after a purchase, or on returning to a gated tab). */
@@ -61,6 +62,28 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
       // its token, and a request that leaves before it is ready is refused.
       const ready = await setupAppCheck().catch(() => false);
       if (mounted.current) setAppCheckReady(ready);
+
+      // Sign in before anything that needs an identity.
+      //
+      // This used to happen only as a side effect of configuring RevenueCat,
+      // which meant a build with no RevenueCat key — every build, before
+      // payments are wired — never signed in at all, and every callable went
+      // out unauthenticated. Auth is foundational and RevenueCat is optional,
+      // so the order has to reflect that.
+      try {
+        await ensureAuth();
+      } catch (err) {
+        console.error('[entitlement] Anonymous sign-in failed', err);
+        if (mounted.current) {
+          setState({
+            isPro: false,
+            loading: false,
+            expiresAt: null,
+            error: 'Could not sign in. Check that Anonymous auth is enabled for this Firebase project.',
+          });
+        }
+        return;
+      }
 
       await configurePurchases().catch(() => false);
       await refresh();

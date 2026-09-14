@@ -11,7 +11,7 @@
  * ship broken for everyone who is not, so being able to flip back in two taps
  * is the part that actually catches bugs.
  */
-import { callable, refreshIdToken } from './firebase';
+import { callable, ensureAuth, refreshIdToken } from './firebase';
 import { isDevBuild } from './appEnv';
 
 export interface DevProResult {
@@ -28,6 +28,11 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
     return { pro: false, expiresAt: null, error: 'Dev Pro is only available in a development build.' };
   }
   try {
+    // The callable rejects an anonymous-but-not-signed-in caller with
+    // `unauthenticated`, which reads as a backend fault when it is really a
+    // startup ordering problem. Guarantee the identity here rather than
+    // assuming some other screen got there first.
+    await ensureAuth();
     const fn = callable<void, { pro: boolean; expiresAt: string | null }>(name);
     const { data } = await fn();
     // The claim was just rewritten server-side; without this the token in this
@@ -38,6 +43,8 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
     const message: string =
       err?.code === 'functions/failed-precondition'
         ? 'Dev Pro is off. Set devProEnabled: true on config/flags in Firestore.'
+        : err?.code === 'functions/unauthenticated'
+          ? 'Not signed in. Anonymous auth may be disabled for this Firebase project.'
         : err?.code === 'functions/not-found'
           ? 'Not available for this account. Add your uid to config/devAccess in Firestore (SETUP.md §9.6).'
           : (err?.message ?? 'Dev Pro call failed.');
