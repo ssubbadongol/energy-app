@@ -47,6 +47,20 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
     error: null,
   });
   const [appCheckReady, setAppCheckReady] = useState(false);
+  /**
+   * Whether the App Check + sign-in bootstrap has finished, either way.
+   *
+   * Children are held back until it has. Every screen starts a Firestore
+   * listener on mount, and the rules require `request.app != null` and a
+   * signed-in user — so rendering them first meant tasks, mentor history and
+   * the profile all fired before either existed and came back "Missing or
+   * insufficient permissions". A rejected listener does not retry, so the
+   * screen stayed broken for the rest of the session.
+   *
+   * Set on failure too, deliberately: a build that cannot attest should still
+   * render and explain itself, rather than hang on a blank screen forever.
+   */
+  const [bootstrapped, setBootstrapped] = useState(false);
   const mounted = useRef(true);
 
   const refresh = useCallback(async () => {
@@ -75,6 +89,7 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
       } catch (err) {
         console.error('[entitlement] Anonymous sign-in failed', err);
         if (mounted.current) {
+          setBootstrapped(true);
           setState({
             isPro: false,
             loading: false,
@@ -87,7 +102,9 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
 
       await configurePurchases().catch(() => false);
       await refresh();
-    })();
+    })().finally(() => {
+      if (mounted.current) setBootstrapped(true);
+    });
 
     const unsubscribe = onEntitlementChange((isPro) => {
       if (mounted.current) setState((prev) => ({ ...prev, isPro, loading: false }));
@@ -109,7 +126,11 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
     [state, refresh, appCheckReady],
   );
 
-  return <EntitlementContext.Provider value={value}>{children}</EntitlementContext.Provider>;
+  return (
+    <EntitlementContext.Provider value={value}>
+      {bootstrapped ? children : null}
+    </EntitlementContext.Provider>
+  );
 }
 
 export function useEntitlement(): EntitlementContextValue {
