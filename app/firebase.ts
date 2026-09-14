@@ -24,8 +24,20 @@ import { getApp } from '@react-native-firebase/app';
 import { getAuth, onAuthStateChanged, signInAnonymously } from '@react-native-firebase/auth';
 import { getFirestore } from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+import { initAppCheckSync } from './appCheck';
 
 export const app = getApp();
+
+/**
+ * App Check first, before any service instance exists.
+ *
+ * Firestore captures its App Check provider at construction and never looks
+ * again, so this must run before `getFirestore` — not from a React effect,
+ * which is what left every read denied on `request.app != null` while App
+ * Check itself reported active 300ms earlier.
+ */
+initAppCheckSync();
+
 export const auth = getAuth(app);
 
 /**

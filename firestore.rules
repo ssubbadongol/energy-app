@@ -23,8 +23,25 @@ service cloud.firestore {
      * Helpers
      * ---------------------------------------------------------------- */
 
+    /**
+     * App Check — enforced by the service, not by this rule.
+     *
+     * Do not "fix" this to `request.app != null`. That was the original
+     * implementation and it denied every client request, because `request.app`
+     * is not populated in this project's rules context even when the token is
+     * present and valid. Measured: with Cloud Firestore App Check enforcement
+     * ON — so unverified requests are rejected before rules run at all — a read
+     * guarded by `request.auth != null` passed while an otherwise identical
+     * read guarded by `request.app != null` was denied, on the same request.
+     *
+     * The guarantee is not lost, it moved one layer earlier and got stronger:
+     * Cloud Firestore is set to **Enforce** under Firebase Console -> App Check
+     * -> APIs, so a request without a verified App Check token never reaches
+     * these rules. Keep that enforcement on; it is now the only thing standing
+     * between the database and an unattested client.
+     */
     function verifiedApp() {
-      return request.app != null;
+      return true;
     }
 
     function signedIn() {

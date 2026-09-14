@@ -39,6 +39,40 @@ let appCheckInstance: any = null;
 let active = false;
 
 /**
+ * Initialise App Check synchronously, before any other Firebase service.
+ *
+ * Order is the whole ballgame. Firestore captures its App Check provider when
+ * the instance is constructed and never re-resolves it, so initialising App
+ * Check from a React effect — after `getFirestore` has already run at module
+ * import — leaves Firestore permanently sending no token. Measured: App Check
+ * reported active at 09:43:53.252 and a read 300ms later was still denied on
+ * `request.app != null`.
+ *
+ * Everything here is synchronous: `configure` and `initializeAppCheck` both
+ * return immediately, and only the token fetch is async (see `setupAppCheck`).
+ * So this can and must run at module scope in `firebase.ts`.
+ */
+export function initAppCheckSync(): void {
+  if (appCheckInstance) return;
+  try {
+    const provider = new ReactNativeFirebaseAppCheckProvider();
+    provider.configure({
+      android: { provider: PROVIDER_NAME, debugToken: DEBUG_TOKEN },
+      apple: {
+        provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'appAttestWithDeviceCheckFallback',
+        debugToken: DEBUG_TOKEN,
+      },
+    });
+    appCheckInstance = initializeAppCheck(getApp(), {
+      provider,
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    console.error('[AppCheck] Synchronous init failed:', (err as Error)?.message ?? err);
+  }
+}
+
+/**
  * Initialise App Check once, before anything touches Firestore or a callable.
  *
  * Returns whether attestation is actually available — the UI uses this to
@@ -49,19 +83,10 @@ export async function setupAppCheck(): Promise<boolean> {
   if (active) return true;
 
   try {
-    const provider = new ReactNativeFirebaseAppCheckProvider();
-    provider.configure({
-      android: { provider: PROVIDER_NAME, debugToken: DEBUG_TOKEN },
-      apple: {
-        provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'appAttestWithDeviceCheckFallback',
-        debugToken: DEBUG_TOKEN,
-      },
-    });
-
-    appCheckInstance = initializeAppCheck(getApp(), {
-      provider,
-      isTokenAutoRefreshEnabled: true,
-    });
+    // Already initialised at module scope by `firebase.ts`; this is belt and
+    // braces for any path that reaches here first.
+    initAppCheckSync();
+    if (!appCheckInstance) throw new Error('App Check was not initialised');
 
     // Fetch one token up front, so a failure is reported here — by the code
     // that can explain it — rather than as a permissions error somewhere else.
