@@ -9,8 +9,15 @@
  * Model
  * ------------------------------------------------------------------ */
 
-/** The only model this backend talks to, for both chat and safety checks. */
-export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+/**
+ * The only model this backend talks to, for both chat and safety checks.
+ *
+ * `gemini-2.5-flash-lite` was retired for new projects — the API returns 404
+ * with "no longer available to new users" rather than a deprecation warning,
+ * so a project created after the cutoff cannot use it at all regardless of
+ * what the code says.
+ */
+export const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 export const GEMINI_ENDPOINT = (model: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
