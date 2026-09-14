@@ -18,7 +18,7 @@ import {
   type EntitlementState,
 } from '@/app/entitlements';
 import { setupAppCheck } from '@/app/appCheck';
-import { ensureAuth } from '@/app/firebase';
+import { ensureAuth, logFirebaseIdentity } from '@/app/firebase';
 
 interface EntitlementContextValue extends EntitlementState {
   /** Re-read entitlement (after a purchase, or on returning to a gated tab). */
@@ -99,6 +99,10 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
         }
         return;
       }
+
+      // Print what the client is actually presenting, once both App Check and
+      // sign-in have settled, so a permissions failure can be attributed.
+      logFirebaseIdentity();
 
       await configurePurchases().catch(() => false);
       await refresh();

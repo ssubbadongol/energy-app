@@ -11,7 +11,7 @@
  * ship broken for everyone who is not, so being able to flip back in two taps
  * is the part that actually catches bugs.
  */
-import { callable, ensureAuth, refreshIdToken } from './firebase';
+import { callable, callableErrorCode, ensureAuth, refreshIdToken } from './firebase';
 import { isDevBuild } from './appEnv';
 
 export interface DevProResult {
@@ -40,10 +40,11 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
     await refreshIdToken();
     return { pro: data.pro, expiresAt: data.expiresAt, error: null };
   } catch (err: any) {
+    const code = callableErrorCode(err);
     const message: string =
-      err?.code === 'functions/failed-precondition'
+      code === 'failed-precondition'
         ? 'Dev Pro is off. Set devProEnabled: true on config/flags in Firestore.'
-        : err?.code === 'functions/unauthenticated'
+        : code === 'unauthenticated'
           // Every callable sets `enforceAppCheck`, and the Functions SDK
           // rejects a missing App Check token *before* the handler runs — as
           // `unauthenticated`, not `failed-precondition`. So this code almost
@@ -51,7 +52,7 @@ async function call(name: 'grantDevPro' | 'revokeDevPro'): Promise<DevProResult>
           // signed in" sends you looking in the wrong place. Ask for both, in
           // the order they actually fail.
           ? 'Request was not verified. Check the App Check debug token is registered for this app, and that anonymous auth is enabled.'
-        : err?.code === 'functions/not-found'
+        : code === 'not-found'
           ? 'Not available for this account. Add your uid to config/devAccess in Firestore (SETUP.md §9.6).'
           : (err?.message ?? 'Dev Pro call failed.');
     console.warn(`[devPro] ${name} failed`, err);

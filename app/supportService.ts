@@ -8,7 +8,7 @@
  * The tone matters: this is an offer, not an intervention. It appears once per
  * flag, it is dismissible, and dismissing it does nothing punitive.
  */
-import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from '@react-native-firebase/firestore';
 import { db, ensureAuth } from './firebase';
 
 export interface CrisisResource {
