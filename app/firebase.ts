@@ -13,8 +13,16 @@
  * a phone, so the native token comes from `@react-native-firebase/app-check`
  * and is handed to the JS SDK through a CustomProvider. See `appCheck.ts`.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, type User } from 'firebase/auth';
+import {
+  getAuth,
+  initializeAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  type Persistence,
+  type User,
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type HttpsCallable } from 'firebase/functions';
 
@@ -63,7 +71,39 @@ if (missing.length > 0) {
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
+/**
+ * Persist the session to disk.
+ *
+ * The JS SDK defaults to *in-memory* persistence on React Native, which for an
+ * anonymous-auth app is quietly catastrophic: `signInAnonymously` mints a new
+ * uid on every cold start, so tasks, mentor history, pod membership and the
+ * Pro entitlement all belong to a user that no longer exists the next time the
+ * app opens. Someone could pay for Pro and lose it on relaunch.
+ *
+ * `getReactNativePersistence` is only present in the package's React Native
+ * build, which Metro resolves and TypeScript does not — hence the require and
+ * the local type. Importing it normally fails to typecheck even though it
+ * works at runtime.
+ */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { getReactNativePersistence } = require('firebase/auth') as {
+  getReactNativePersistence?: (storage: unknown) => Persistence;
+};
+
+function createAuth() {
+  if (!getReactNativePersistence) {
+    // Web, or a build where the RN entry point was not resolved.
+    return getAuth(app);
+  }
+  try {
+    return initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
+  } catch {
+    // Already initialised — a Fast Refresh re-run of this module.
+    return getAuth(app);
+  }
+}
+
+export const auth = createAuth();
 export const db = getFirestore(app);
 
 /** Must match the region every callable is deployed to. */
