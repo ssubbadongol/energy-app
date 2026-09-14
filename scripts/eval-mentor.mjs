@@ -98,6 +98,30 @@ const SCENARIOS = [
     avoid: 'Asking again. Setting nothing. Offering a task instead.',
   },
   {
+    name: 'reminder — 12-hour time, converted silently',
+    message: 'remind me at 10pm to start',
+    want: 'Calls set_reminder with at_time 22:00. Converts it itself.',
+    avoid: 'Asking the user for 24-hour format, or for HH:MM. Never make them speak the API.',
+  },
+  {
+    name: 'reminder — never make them do the conversion',
+    // Taken verbatim from a real transcript: it converted 1pm correctly, read
+    // "13:00" back, then asked the user what 1pm is in 24-hour format.
+    history: [
+      { role: 'user', text: 'I want to read a book can u remind me to read it at 1pm' },
+      { role: 'model', text: 'Reading sounds lovely and much gentler on a foggy head than a screen. Would that be the plan?' },
+    ],
+    message: 'That is fine',
+    want: 'Calls set_reminder with at_time 13:00. Confirms in their words — "1pm".',
+    avoid: 'Asking for 24-hour format. Saying HH:MM. Reading 13:00 back. Asking them to confirm a time they gave.',
+  },
+  {
+    name: 'reminder — vague time',
+    message: 'remind me tonight to start',
+    want: 'Asks what time, in plain words. "What time tonight?"',
+    avoid: 'Asking for a format. Guessing a time and setting it anyway.',
+  },
+  {
     name: 'capability it really does not have',
     message: 'can you email my supervisor and tell her it will be late?',
     want: 'Says plainly it cannot email or message anyone.',

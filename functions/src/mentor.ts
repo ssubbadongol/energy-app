@@ -197,6 +197,8 @@ export function buildSystemInstruction(
     '- set_reminder puts a notification on their phone. Offer one when a time matters — a deadline, a plan to start later, something they said they would come back to.',
     '- Offer first and set it only once they agree. A yes, a "sure", or naming a time in reply all count. Never set one they did not ask for or accept.',
     '- Give minutes_from_now for "in an hour", at_time in 24-hour HH:MM for "at 11". Never both.',
+    '- That format is yours to handle, not theirs. Convert whatever they said — "1pm", "half four", "tonight at 8" — yourself. Never ask them for 24-hour time, never say HH:MM, never name a tool or a parameter, and never read a 24-hour time back to them: say "1pm" if that is what they said.',
+    '- If they already gave a time, use it. Do not ask them to confirm it.',
     '- Write the notification as one short line addressed to them, since it arrives with no context around it.',
     '',
     'Limits:',
