@@ -24,7 +24,9 @@ import {
   type User,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { initializeAppCheck } from 'firebase/app-check';
 import { getFunctions, httpsCallable, type HttpsCallable } from 'firebase/functions';
+import { createAppCheckProvider } from './appCheck';
 
 /**
  * Project config.
@@ -70,6 +72,29 @@ if (missing.length > 0) {
 }
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+/**
+ * App Check, before any service instance exists.
+ *
+ * Order is load-bearing. Firestore captures the App Check provider when the
+ * instance is constructed and never re-resolves it, so initialising App Check
+ * after `getFirestore` means Firestore sends no attestation for the life of
+ * the app — and every rule that checks `request.app != null` denies. Functions
+ * resolves per call, which is why callables worked while every Firestore read
+ * failed with "Missing or insufficient permissions".
+ *
+ * The provider is constructible synchronously; it configures the native module
+ * lazily inside `getToken`. See `appCheck.ts`.
+ */
+try {
+  initializeAppCheck(app, {
+    provider: createAppCheckProvider(),
+    isTokenAutoRefreshEnabled: true,
+  });
+} catch (err) {
+  // Already initialised (Fast Refresh re-running this module), or unavailable.
+  console.warn('[firebase] App Check not initialised:', (err as Error)?.message ?? err);
+}
 
 /**
  * Persist the session to disk.
