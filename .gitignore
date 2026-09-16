@@ -47,9 +47,9 @@ node_modules
 build
 /.vs
 
-# Firebase native config (per-project, keep out of git)
-google-services.json
-GoogleService-Info.plist
+# Firebase native config (per-project, per-variant, keep out of git)
+google-services*.json
+GoogleService-Info*.plist
 
 # Cloud Functions build output
 functions/lib/

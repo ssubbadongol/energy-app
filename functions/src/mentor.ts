@@ -19,6 +19,7 @@ import {
   MENTOR_DAILY_LIMIT,
   MENTOR_HISTORY_TURNS,
   MENTOR_MAX_INPUT_CHARS,
+  PROMPT_LIMITS,
   paths,
 } from './config';
 import { requireProCaller } from './entitlements';
@@ -26,7 +27,7 @@ import { getFlags } from './flags';
 import { consumeMentorCall, readMentorUsage, refundMentorCall } from './rateLimit';
 import { generateContent, GeminiError, MENTOR_SAFETY_SETTINGS, type GeminiContent } from './gemini';
 import { GEMINI_API_KEY } from './secrets';
-import { executeTaskTool, TASK_TOOL_DECLARATIONS, type ToolEffect } from './mentorTools';
+import { executeTaskTool, localWallClock, TASK_TOOL_DECLARATIONS, type ToolEffect } from './mentorTools';
 
 /** Most a single turn may bounce between the model and Firestore. */
 const MAX_TOOL_ROUNDS = 3;
@@ -49,14 +50,35 @@ export interface MentorReply {
   degraded: 'rate_limited' | 'mentor_disabled' | 'model_error' | null;
 }
 
+/** Clamp one user-controlled string before it can reach a prompt. */
+function clamp(value: unknown, max: number): string {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+/**
+ * Load the profile that personalises the system instruction.
+ *
+ * Every string here is clamped. The profile is written by the client and
+ * replayed on *every* turn, so an unbounded field is not a display bug — it is
+ * a standing multiplier on the cost of every message this user ever sends.
+ * Firestore rules reject oversized writes too; this covers anything already
+ * stored and keeps the guarantee local to the code that depends on it.
+ */
 async function loadProfile(uid: string): Promise<MentorProfile> {
   const snap = await db.doc(paths.user(uid)).get();
   const data = snap.data() ?? {};
   const tone = data.mentorTone === 'Direct' ? 'Direct' : 'Gentle';
+
+  const strings = (value: unknown, max: number, count: number): string[] =>
+    Array.isArray(value)
+      ? value.slice(0, count).map((v) => clamp(v, max)).filter((v) => v.length > 0)
+      : [];
+
+  const name = clamp(data.name, PROMPT_LIMITS.profileName);
   return {
-    name: typeof data.name === 'string' && data.name.trim() ? data.name.trim() : null,
-    tags: Array.isArray(data.tags) ? data.tags.slice(0, 12).map(String) : [],
-    goals: Array.isArray(data.goals) ? data.goals.slice(0, 12).map(String) : [],
+    name: name.length > 0 ? name : null,
+    tags: strings(data.tags, PROMPT_LIMITS.profileTag, 12),
+    goals: strings(data.goals, PROMPT_LIMITS.profileGoal, 12),
     tone,
   };
 }
@@ -81,33 +103,65 @@ async function loadHistory(uid: string): Promise<GeminiContent[]> {
     .filter((m) => typeof m.text === 'string' && m.text.trim().length > 0)
     .map((m) => ({
       role: m.role === 'model' ? ('model' as const) : ('user' as const),
-      parts: [{ text: m.text as string }],
+      // Capped at send time, but rows written before that cap existed would
+      // otherwise be replayed in full on every subsequent turn.
+      parts: [{ text: (m.text as string).slice(0, MENTOR_MAX_INPUT_CHARS) }],
     }));
 }
 
-function buildSystemInstruction(profile: MentorProfile): string {
+/**
+ * The mentor's character.
+ *
+ * The first version told the model to "validate before you suggest" and never
+ * gave it permission to disagree, so it agreed with everything — including
+ * plans that were plainly avoidance. Warmth and honesty are not in tension,
+ * but a small model collapses them into flattery unless told otherwise, and
+ * told *how much*: say the true thing once, then respect the person's
+ * autonomy. Nagging a neurodivergent student is a worse failure than
+ * flattering them — they have heard "you're just being lazy" enough.
+ *
+ * Exported for `scripts/eval-mentor.mjs`, which replays fixed scenarios
+ * through this exact text so changes here can be judged rather than guessed.
+ */
+export function buildSystemInstruction(
+  profile: MentorProfile,
+  clientNow?: string,
+  tzOffsetMinutes?: number,
+): string {
   const { name, tags, goals, tone } = profile;
 
   const who = name ? `They go by ${name}. ` : '';
   const identifies = tags.length ? `They identify with: ${tags.join(', ')}. ` : '';
   const working = goals.length ? `They are currently working on: ${goals.join('; ')}. ` : '';
 
+  // Formatted in the client's own offset, because that string is what "now"
+  // means to the person reading the reply.
+  const localTime = (() => {
+    const d = localWallClock(clientNow, tzOffsetMinutes);
+    if (!d) return '';
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()];
+    return `It is ${hh}:${mm} on ${day} where they are. Use that when they mention a time.`;
+  })();
+
   const voice =
     tone === 'Direct'
-      ? 'They chose Direct mode: be concise and concrete. Lead with the suggestion, skip the warm-up, do not pad with reassurance they did not ask for.'
-      : 'They chose Gentle mode: warm, unhurried, low-pressure. Validate before you suggest, and make every suggestion opt-out-able.';
+      ? 'They chose Direct mode: lead with the honest read, then the suggestion. Skip the warm-up. No reassurance they did not ask for.'
+      : 'They chose Gentle mode: warm, unhurried, low-pressure. Acknowledge how they feel before you answer what they are proposing — but acknowledging a feeling is not agreeing with a plan.';
 
   const adhd = tags.some((t) => /adhd|focus/i.test(t))
-    ? '\n- Executive function is the bottleneck, not willpower. Name the very next physical action, not the goal. Offer to shrink a task before offering to schedule it.'
+    ? '\n- Executive function is the bottleneck, not willpower — so name the very next physical action, not the goal, and shrink a task before scheduling it. That is never a reason to agree that avoiding something is fine.'
     : '';
   const anxiety = tags.some((t) => /anx|stress|overwhelm/i.test(t))
     ? '\n- When they spiral, slow down. Reflect what you heard first. Offer one grounding option, never a list of five.'
     : '';
 
   return [
-    'You are the Soft Focus mentor: a warm, practical companion for a neurodivergent student.',
+    'You are the Soft Focus mentor: a warm, honest, practical companion for a neurodivergent student.',
     '',
     `${who}${identifies}${working}`.trim(),
+    localTime,
     voice,
     '',
     'How you talk:',
@@ -118,6 +172,20 @@ function buildSystemInstruction(profile: MentorProfile): string {
     adhd,
     anxiety,
     '',
+    'Being honest:',
+    '- Warmth is not agreement. Being liked is not the job; being useful is.',
+    '- If a plan will likely make things harder, say so once — one plain sentence, no preamble — then offer a concrete alternative.',
+    "- Say it once. 'I know, but', 'anyway', 'I have decided' or simply restating the plan means the conversation is over: agree, drop your reasoning entirely, and help them do the thing they chose well. Never repeat it, never moralise, never imply they are lazy or weak.",
+    '- Do not manufacture enthusiasm. If you do not think something will help, do not say it will.',
+    '- It is their life and their call. Your job is that they decide with accurate information, not that they decide what you would.',
+    '',
+    'What actually helps, so you have something true to offer:',
+    '- Rest restores when it is low-stimulation: lying down, a walk, food, water, daylight, a shower, actual sleep.',
+    '- Screens, feeds, videos and games are stimulation, not rest. Before a hard task they usually deepen the fog and eat the time meant for the task. Say so when it comes up.',
+    '- "I will start after X" usually means starting is the hard part. Offer a smaller first step now instead of a better start later.',
+    '- A task that keeps slipping is usually unclear, too big, or carries dread. Ask which.',
+    '- A time they name is worth taking seriously. Ask what happens at that time rather than letting it pass unmentioned.',
+    '',
     'Managing their tasks:',
     '- You can add, list, complete and delete tasks with the provided tools.',
     '- add_task needs name, priority, energy, time and type. If any are missing, ask for them conversationally — one at a time, not as a form.',
@@ -125,9 +193,18 @@ function buildSystemInstruction(profile: MentorProfile): string {
     '- Never invent a task the user did not ask for, and never delete without a clear request.',
     '- After a tool runs, say plainly what you did in one short sentence.',
     '',
+    'Reminders:',
+    '- set_reminder puts a notification on their phone. Offer one when a time matters — a deadline, a plan to start later, something they said they would come back to.',
+    '- Offer first and set it only once they agree. A yes, a "sure", or naming a time in reply all count. Never set one they did not ask for or accept.',
+    '- Give minutes_from_now for "in an hour", at_time in 24-hour HH:MM for "at 11". Never both.',
+    '- That format is yours to handle, not theirs. Convert whatever they said — "1pm", "half four", "tonight at 8" — yourself. Never ask them for 24-hour time, never say HH:MM, never name a tool or a parameter, and never read a 24-hour time back to them: say "1pm" if that is what they said.',
+    '- If they already gave a time, use it. Do not ask them to confirm it.',
+    '- Write the notification as one short line addressed to them, since it arrives with no context around it.',
+    '',
     'Limits:',
+    '- Tasks and reminders are the only things you can actually do. You cannot message them later, email, call, or act outside this app. Never offer to.',
     '- You are not a therapist or a doctor, and you do not diagnose.',
-    '- If they describe self-harm, being unsafe, or a crisis: stay with them, be calm and human, do not lecture, and gently mention that Samaritans (116 123, UK, free, 24/7) is there if they want a person to talk to. Do not refuse to talk to them.',
+    '- If they describe self-harm, hopelessness, not seeing the point, being unsafe, or a crisis: stay with them, be calm and human, do not lecture, and gently mention that Samaritans (116 123, UK, free, 24/7) is there if they want a person to talk to. Do not refuse to talk to them.',
   ]
     .filter((line) => line !== '')
     .join('\n');
@@ -166,7 +243,7 @@ export const mentorChat = onCall(
     timeoutSeconds: 60,
     maxInstances: 20,
   },
-  async (request: CallableRequest<{ message?: string }>): Promise<MentorReply> => {
+  async (request: CallableRequest<{ message?: string; clientNow?: string; tzOffsetMinutes?: number }>): Promise<MentorReply> => {
     const { uid } = await requireProCaller(request);
 
     const message = String(request.data?.message ?? '').trim();
@@ -203,8 +280,17 @@ export const mentorChat = onCall(
       return { reply, taskEffects: [], tasksChanged: false, usage, degraded: 'rate_limited' };
     }
 
+    // The user's own clock. Without it the mentor cannot place "at 11" — a
+    // server in us-central1 resolving that against its own time would be
+    // hours out — and it cannot say "it's already gone nine" either.
+    const clientNow = typeof request.data?.clientNow === 'string' ? request.data.clientNow : undefined;
+    const tzOffsetMinutes =
+      typeof request.data?.tzOffsetMinutes === 'number' && Math.abs(request.data.tzOffsetMinutes) <= 14 * 60
+        ? request.data.tzOffsetMinutes
+        : 0;
+
     const [profile, history] = await Promise.all([loadProfile(uid), loadHistory(uid)]);
-    const systemInstruction = buildSystemInstruction(profile);
+    const systemInstruction = buildSystemInstruction(profile, clientNow, tzOffsetMinutes);
 
     const contents: GeminiContent[] = [...history, { role: 'user', parts: [{ text: message }] }];
     const effects: ToolEffect[] = [];
@@ -234,11 +320,20 @@ export const mentorChat = onCall(
 
         if (result.functionCall) {
           const { name, args } = result.functionCall;
-          const outcome = await executeTaskTool(uid, name, args);
+          const outcome = await executeTaskTool(uid, name, args, { clientNow, tzOffsetMinutes });
           effects.push(outcome.effect);
 
           // Feed the call and its result back so the model can narrate it.
-          contents.push({ role: 'model', parts: [{ functionCall: { name, args } }] });
+          //
+          // The part is replayed exactly as received rather than rebuilt from
+          // `{ name, args }`: Gemini 3.x attaches a `thoughtSignature` to a
+          // function call and rejects the next turn with 400 if it is missing.
+          // Reconstructing the part silently dropped it, so every turn that
+          // used a tool failed while plain conversation worked.
+          contents.push({
+            role: 'model',
+            parts: [result.functionCallPart ?? { functionCall: { name, args } }],
+          });
           contents.push({
             role: 'user',
             parts: [{ functionResponse: { name, response: outcome.response } }],

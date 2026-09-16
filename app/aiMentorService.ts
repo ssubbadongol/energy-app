@@ -9,17 +9,18 @@
  * What is left is deliberately thin: send a string, get a reply and a list of
  * what the mentor did to the user's tasks.
  */
-import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { FunctionsError } from 'firebase/functions';
-import { callable, db, ensureAuth } from './firebase';
+import { collection, limit, onSnapshot, orderBy, query } from '@react-native-firebase/firestore';
+import { callable, callableErrorCode, db, ensureAuth } from './firebase';
 import { getRemoteProfile } from './userDoc';
 
 export interface TaskEffect {
-  tool: 'add_task' | 'list_tasks' | 'complete_task' | 'delete_task' | string;
+  tool: 'add_task' | 'list_tasks' | 'complete_task' | 'delete_task' | 'set_reminder' | string;
   ok: boolean;
   summary: string;
   taskId?: string;
   taskName?: string;
+  /** Set by `set_reminder`; the device schedules it. See `reminderService`. */
+  reminder?: { text: string; inMinutes: number };
 }
 
 export interface MentorMessage {
@@ -56,16 +57,19 @@ export class MentorUnavailable extends Error {
 
 /** Maps callable error codes to something the UI can respond to specifically. */
 function toMentorError(err: unknown): MentorUnavailable {
-  const code = err instanceof FunctionsError ? err.code : '';
+  // React Native Firebase reports codes bare (`permission-denied`); the JS
+  // SDK namespaced them (`functions/permission-denied`). Normalised centrally
+  // so a mis-read code cannot silently unlock or lock a Pro feature.
+  const code = callableErrorCode(err);
   switch (code) {
-    case 'functions/permission-denied':
+    case 'permission-denied':
       return new MentorUnavailable('needs_pro', 'The mentor is part of Soft Focus Pro.');
-    case 'functions/failed-precondition':
+    case 'failed-precondition':
       return new MentorUnavailable('unverified_build', 'This app build could not be verified.');
-    case 'functions/unauthenticated':
+    case 'unauthenticated':
       return new MentorUnavailable('signed_out', 'Sign in again to keep chatting.');
-    case 'functions/unavailable':
-    case 'functions/deadline-exceeded':
+    case 'unavailable':
+    case 'deadline-exceeded':
       return new MentorUnavailable('offline', 'The mentor could not be reached. Try again in a moment.');
     default:
       console.warn('[mentor] Unexpected callable failure', err);
@@ -135,8 +139,20 @@ export function subscribeToConversation(
 /** Send one turn. Persistence happens server-side, in the same call. */
 export async function sendMessageToMentor(message: string): Promise<MentorTurn> {
   try {
-    const fn = callable<{ message: string }, MentorTurn>('mentorChat');
-    const { data } = await fn({ message });
+    const fn = callable<
+      { message: string; clientNow: string; tzOffsetMinutes: number },
+      MentorTurn
+    >('mentorChat');
+    // The server cannot place "at 11" without the user's clock, and it has no
+    // way to infer a timezone from an anonymous account. The offset has to go
+    // with it: toISOString() is UTC and Cloud Functions run in UTC, so the
+    // timestamp alone would resolve every wall-clock time in the wrong zone.
+    // getTimezoneOffset is minutes *behind* UTC, hence the negation.
+    const { data } = await fn({
+      message,
+      clientNow: new Date().toISOString(),
+      tzOffsetMinutes: -new Date().getTimezoneOffset(),
+    });
     return data;
   } catch (err) {
     throw toMentorError(err);

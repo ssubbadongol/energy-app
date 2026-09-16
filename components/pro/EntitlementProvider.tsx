@@ -18,6 +18,7 @@ import {
   type EntitlementState,
 } from '@/app/entitlements';
 import { setupAppCheck } from '@/app/appCheck';
+import { ensureAuth, logFirebaseIdentity } from '@/app/firebase';
 
 interface EntitlementContextValue extends EntitlementState {
   /** Re-read entitlement (after a purchase, or on returning to a gated tab). */
@@ -46,6 +47,20 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
     error: null,
   });
   const [appCheckReady, setAppCheckReady] = useState(false);
+  /**
+   * Whether the App Check + sign-in bootstrap has finished, either way.
+   *
+   * Children are held back until it has. Every screen starts a Firestore
+   * listener on mount, and the rules require `request.app != null` and a
+   * signed-in user — so rendering them first meant tasks, mentor history and
+   * the profile all fired before either existed and came back "Missing or
+   * insufficient permissions". A rejected listener does not retry, so the
+   * screen stayed broken for the rest of the session.
+   *
+   * Set on failure too, deliberately: a build that cannot attest should still
+   * render and explain itself, rather than hang on a blank screen forever.
+   */
+  const [bootstrapped, setBootstrapped] = useState(false);
   const mounted = useRef(true);
 
   const refresh = useCallback(async () => {
@@ -62,9 +77,38 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
       const ready = await setupAppCheck().catch(() => false);
       if (mounted.current) setAppCheckReady(ready);
 
+      // Sign in before anything that needs an identity.
+      //
+      // This used to happen only as a side effect of configuring RevenueCat,
+      // which meant a build with no RevenueCat key — every build, before
+      // payments are wired — never signed in at all, and every callable went
+      // out unauthenticated. Auth is foundational and RevenueCat is optional,
+      // so the order has to reflect that.
+      try {
+        await ensureAuth();
+      } catch (err) {
+        console.error('[entitlement] Anonymous sign-in failed', err);
+        if (mounted.current) {
+          setBootstrapped(true);
+          setState({
+            isPro: false,
+            loading: false,
+            expiresAt: null,
+            error: 'Could not sign in. Check that Anonymous auth is enabled for this Firebase project.',
+          });
+        }
+        return;
+      }
+
+      // Print what the client is actually presenting, once both App Check and
+      // sign-in have settled, so a permissions failure can be attributed.
+      logFirebaseIdentity();
+
       await configurePurchases().catch(() => false);
       await refresh();
-    })();
+    })().finally(() => {
+      if (mounted.current) setBootstrapped(true);
+    });
 
     const unsubscribe = onEntitlementChange((isPro) => {
       if (mounted.current) setState((prev) => ({ ...prev, isPro, loading: false }));
@@ -86,7 +130,11 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
     [state, refresh, appCheckReady],
   );
 
-  return <EntitlementContext.Provider value={value}>{children}</EntitlementContext.Provider>;
+  return (
+    <EntitlementContext.Provider value={value}>
+      {bootstrapped ? children : null}
+    </EntitlementContext.Provider>
+  );
 }
 
 export function useEntitlement(): EntitlementContextValue {

@@ -1,119 +1,114 @@
 /**
- * Firebase App Check for React Native.
+ * Firebase App Check.
  *
  * This is what stops someone lifting an anonymous ID token out of the app and
  * driving the Mentor or Pods endpoints from a script. Entitlement checks alone
- * do not cover that: a paying user could still automate 50 mentor calls a day
- * from curl, and a modified client could spam every pod at once.
+ * do not cover that: a paying user could still automate their daily mentor
+ * allowance from curl, and a modified client could spam every pod at once.
  *
- * Getting a *real* attestation on a phone needs the platform APIs — Play
- * Integrity on Android, App Attest (with DeviceCheck fallback) on iOS. The
- * Firebase JS SDK cannot reach those; its built-in providers are reCAPTCHA,
- * which is web-only. So the native module mints the token and we hand it to
- * the JS SDK through a `CustomProvider`. Both SDKs end up agreeing on one
- * attestation, and every Firestore and Functions call carries it.
- *
- * The native module is optional at runtime on purpose: a dev build without the
- * Firebase native config should still boot, loudly, rather than hard-crash.
+ * Attestation comes from the platform — Play Integrity on Android, App Attest
+ * with a DeviceCheck fallback on iOS. Because the whole client is now on the
+ * native SDK, the token is attached to every Firestore, Functions and Auth
+ * call automatically; there is no provider to bridge and nothing to keep in
+ * sync. The previous arrangement handed a native token to the JS SDK through a
+ * CustomProvider, and that token reached callables but never reached
+ * Firestore, which denied every read.
  */
 import { Platform } from 'react-native';
-import { CustomProvider, initializeAppCheck, type AppCheck } from 'firebase/app-check';
-import { app } from './firebase';
+import { getApp } from '@react-native-firebase/app';
+import {
+  getToken,
+  initializeAppCheck,
+  ReactNativeFirebaseAppCheckProvider,
+} from '@react-native-firebase/app-check';
 
 /**
- * Debug token for simulators and CI, where Play Integrity and App Attest
- * cannot produce a real attestation.
+ * Debug token for simulators and sideloaded builds, where Play Integrity and
+ * App Attest cannot produce a real attestation.
  *
- * Set EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN in .env for local dev only and
- * register it under Firebase Console -> App Check -> Manage debug tokens.
- * It must never be set in a production build.
+ * Local dev only. It must never be set in a build you ship: a registered debug
+ * token in a public bundle is a permanent App Check bypass for anyone who
+ * extracts it.
  */
 const DEBUG_TOKEN = process.env.EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN;
 
-/** App Check tokens live ~1h; refresh well before that. */
-const TOKEN_TTL_MS = 30 * 60 * 1000;
+/** Which provider this build asks for. Logged, because it explains a lot. */
+const PROVIDER_NAME = __DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity';
 
-let initialised: AppCheck | null = null;
-let nativeAppCheck: any = null;
+let appCheckInstance: any = null;
+let active = false;
 
 /**
- * Load `@react-native-firebase/app-check` if the native module is linked.
+ * Initialise App Check synchronously, before any other Firebase service.
  *
- * Required at call time rather than imported at module scope so a missing
- * native module degrades to a warning instead of a red screen at startup.
+ * Order is the whole ballgame. Firestore captures its App Check provider when
+ * the instance is constructed and never re-resolves it, so initialising App
+ * Check from a React effect — after `getFirestore` has already run at module
+ * import — leaves Firestore permanently sending no token. Measured: App Check
+ * reported active at 09:43:53.252 and a read 300ms later was still denied on
+ * `request.app != null`.
+ *
+ * Everything here is synchronous: `configure` and `initializeAppCheck` both
+ * return immediately, and only the token fetch is async (see `setupAppCheck`).
+ * So this can and must run at module scope in `firebase.ts`.
  */
-function loadNativeModule(): any | null {
-  if (nativeAppCheck) return nativeAppCheck;
+export function initAppCheckSync(): void {
+  if (appCheckInstance) return;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { firebase } = require('@react-native-firebase/app-check');
-    nativeAppCheck = firebase.appCheck();
-    return nativeAppCheck;
-  } catch {
-    return null;
+    const provider = new ReactNativeFirebaseAppCheckProvider();
+    provider.configure({
+      android: { provider: PROVIDER_NAME, debugToken: DEBUG_TOKEN },
+      apple: {
+        provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'appAttestWithDeviceCheckFallback',
+        debugToken: DEBUG_TOKEN,
+      },
+    });
+    appCheckInstance = initializeAppCheck(getApp(), {
+      provider,
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    console.error('[AppCheck] Synchronous init failed:', (err as Error)?.message ?? err);
   }
 }
 
-async function configureNative(): Promise<any | null> {
-  const appCheck = loadNativeModule();
-  if (!appCheck) return null;
-
-  const provider = appCheck.newReactNativeFirebaseAppCheckProvider();
-  provider.configure({
-    android: {
-      provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity',
-      debugToken: DEBUG_TOKEN,
-    },
-    apple: {
-      provider: __DEV__ && DEBUG_TOKEN ? 'debug' : 'appAttestWithDeviceCheckFallback',
-      debugToken: DEBUG_TOKEN,
-    },
-  });
-
-  await appCheck.initializeAppCheck({ provider, isTokenAutoRefreshEnabled: true });
-  return appCheck;
-}
-
 /**
- * Initialise App Check once, at app start, before anything touches Firestore
- * or a callable. Safe to call more than once.
+ * Initialise App Check once, before anything touches Firestore or a callable.
  *
- * Returns whether a real attestation provider is active — the UI uses this to
+ * Returns whether attestation is actually available — the UI uses this to
  * explain why Mentor and Pods are unavailable in an unattested build, instead
- * of showing an opaque `failed-precondition`.
+ * of showing an opaque permissions error on an unrelated screen.
  */
 export async function setupAppCheck(): Promise<boolean> {
-  if (initialised) return true;
+  if (active) return true;
 
-  const native = await configureNative().catch((err) => {
-    console.warn('[AppCheck] Native provider failed to configure:', err);
-    return null;
-  });
+  try {
+    // Already initialised at module scope by `firebase.ts`; this is belt and
+    // braces for any path that reaches here first.
+    initAppCheckSync();
+    if (!appCheckInstance) throw new Error('App Check was not initialised');
 
-  if (!native) {
-    console.warn(
-      '[AppCheck] @react-native-firebase/app-check is not available. ' +
-        'Mentor and Pods will be rejected by the backend until you run a dev/production ' +
-        'build that includes it. See SETUP.md.',
+    // Fetch one token up front, so a failure is reported here — by the code
+    // that can explain it — rather than as a permissions error somewhere else.
+    await getToken(appCheckInstance, /* forceRefresh */ false);
+
+    active = true;
+    console.log(`[AppCheck] Active (${Platform.OS}) provider=${PROVIDER_NAME}`);
+    return true;
+  } catch (err) {
+    console.error(
+      '[AppCheck] Could not attest:',
+      (err as Error)?.message ?? err,
+      `| provider=${PROVIDER_NAME}`,
+      `| debugTokenSet=${Boolean(DEBUG_TOKEN)}`,
+      '| If provider=debug, that token must be registered under Firebase Console',
+      '-> App Check -> your app -> Manage debug tokens.',
     );
     return false;
   }
-
-  initialised = initializeAppCheck(app, {
-    provider: new CustomProvider({
-      getToken: async () => {
-        const { token } = await native.getToken(/* forceRefresh */ false);
-        return { token, expireTimeMillis: Date.now() + TOKEN_TTL_MS };
-      },
-    }),
-    isTokenAutoRefreshEnabled: true,
-  });
-
-  console.log(`[AppCheck] Active (${Platform.OS})`);
-  return true;
 }
 
-/** True once a real attestation provider is wired up. */
+/** True once a real attestation token has been minted at least once. */
 export function isAppCheckActive(): boolean {
-  return initialised !== null;
+  return active;
 }

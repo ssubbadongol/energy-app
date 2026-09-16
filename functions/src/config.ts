@@ -9,11 +9,32 @@
  * Model
  * ------------------------------------------------------------------ */
 
-/** The only model this backend talks to, for both chat and safety checks. */
-export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+/**
+ * The only model this backend talks to, for both chat and safety checks.
+ *
+ * `gemini-2.5-flash-lite` was retired for new projects — the API returns 404
+ * with "no longer available to new users" rather than a deprecation warning,
+ * so a project created after the cutoff cannot use it at all regardless of
+ * what the code says.
+ */
+export const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 export const GEMINI_ENDPOINT = (model: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+/**
+ * How much invisible reasoning the model may spend.
+ *
+ * Thinking tokens are billed like output and never shown to the user, so we
+ * want as few as the model will accept. On 2.5 that was `thinkingBudget: 0`;
+ * Gemini 3.x rejects a zero budget outright with a 400, which fails *every*
+ * request rather than degrading, so the setting is now a named constant
+ * instead of a literal buried in the request body.
+ *
+ * Measured on gemini-3.5-flash-lite: `minimal` returned the fewest tokens of
+ * the accepted options and reported no thought tokens at all.
+ */
+export const THINKING_CONFIG = { thinkingLevel: 'minimal' } as const;
 
 /**
  * Output-token ceilings. These are the primary per-call cost lever, so they
@@ -47,8 +68,95 @@ export const MENTOR_MAX_INPUT_CHARS = 2000;
 /** Longest pod message accepted (characters). Mirrored in Firestore rules. */
 export const POD_MAX_MESSAGE_CHARS = 500;
 
+/**
+ * Ceilings on anything user-controlled that ends up inside a prompt.
+ *
+ * These are a cost control, not a formatting preference. A Firestore document
+ * can hold ~1MiB, and both the profile and the task list are written by the
+ * client and then replayed to Gemini — the profile on *every* mentor turn, as
+ * part of the system instruction. Without a bound, one oversized display name
+ * turns a $0.0003 message into a $0.02 one for as long as it sits there, and a
+ * few hundred oversized tasks would exhaust the function's memory before the
+ * request even reached the model.
+ *
+ * Firestore rules enforce the same limits at write time; these are the second
+ * line, covering documents written before the rules existed and any path that
+ * bypasses them.
+ */
+export const PROMPT_LIMITS = {
+  profileName: 60,
+  profileTag: 40,
+  profileGoal: 120,
+  taskName: 200,
+  taskType: 60,
+  /** Tasks handed to the model in one `list_tasks` response. */
+  taskListSize: 60,
+} as const;
+
+/**
+ * Pod messages one member may post in a rolling window before the room starts
+ * dropping them. Flooding a five-person support room is a moderation problem
+ * long before it is a billing one, so this is set for the room's sake.
+ */
+export const POD_FLOOD_LIMIT = { messages: 12, windowMs: 60_000 } as const;
+
+/* ------------------------------------------------------------------ *
+ * Reminders
+ * ------------------------------------------------------------------ */
+
+/**
+ * Bounds on a mentor-set reminder.
+ *
+ * The mentor cannot schedule anything itself — it returns an effect and the
+ * device schedules a local notification — so these are about what is sensible
+ * to promise, not about cost. A reminder further out than a week is almost
+ * certainly the model misreading a date, and a notification body long enough
+ * to be truncated by the OS is worse than a short one.
+ */
+export const REMINDER_LIMITS = {
+  maxTextChars: 120,
+  minMinutes: 1,
+  maxMinutes: 7 * 24 * 60,
+} as const;
+
 /** How long a resolved kill-switch flag is cached in an instance (ms). */
 export const FLAGS_CACHE_TTL_MS = 60_000;
+
+/* ------------------------------------------------------------------ *
+ * Development
+ * ------------------------------------------------------------------ */
+
+/**
+ * Projects where `grantDevPro` may hand out a Pro claim without a purchase.
+ *
+ * Soft Focus runs a *single* project, so this list contains the production
+ * project and therefore isolates nothing. It is kept because it costs nothing
+ * and becomes a real guard the day a separate staging project appears — but
+ * until then, read it as documentation, not protection.
+ *
+ * The guard that actually carries weight in a single-project setup is
+ * `config/devAccess`: see DEV_ACCESS_DOC below.
+ */
+export const DEV_PROJECT_IDS: readonly string[] = ['soft-focus-app'];
+
+/**
+ * The uids permitted to grant themselves Pro, held in a server-only document.
+ *
+ * This is the barrier that matters. With one project, `devProEnabled` left on
+ * by accident would otherwise mean anyone running the app can take the
+ * subscription for free; with an explicit uid list, the blast radius of that
+ * mistake is the handful of people already building the thing.
+ *
+ * No Firestore rule grants access to this path, so the catch-all deny at the
+ * bottom of `firestore.rules` makes it unreadable to every client. Populate it
+ * by hand in the console:
+ *
+ *   config/devAccess -> { uids: ["<your anonymous uid>"] }
+ */
+export const DEV_ACCESS_DOC = 'config/devAccess';
+
+/** How long a dev Pro grant lasts before it expires on its own. */
+export const DEV_PRO_TTL_MS = 24 * 60 * 60 * 1000;
 
 /* ------------------------------------------------------------------ *
  * Pods

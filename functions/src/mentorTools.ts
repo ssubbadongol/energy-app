@@ -9,7 +9,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { db } from './admin';
-import { paths } from './config';
+import { PROMPT_LIMITS, REMINDER_LIMITS, paths } from './config';
 
 export const TASK_TOOL_DECLARATIONS = [
   {
@@ -38,6 +38,30 @@ export const TASK_TOOL_DECLARATIONS = [
       properties: {
         includeCompleted: { type: 'boolean', description: 'Include already-finished tasks. Defaults to false.' },
       },
+    },
+  },
+  {
+    name: 'set_reminder',
+    description:
+      "Schedule a phone notification for the user. Only call this once they have agreed to a reminder — offer first, then set it when they say yes. Give either minutes_from_now or at_time, not both.",
+    parameters: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: 'What the notification should say, in the second person. e.g. "Time to start the lab report."',
+        },
+        minutes_from_now: {
+          type: 'number',
+          description: 'Fire this many minutes from now. Use for "in an hour", "in 20 minutes".',
+        },
+        at_time: {
+          type: 'string',
+          description:
+            'Local clock time in 24-hour HH:MM. Use for "at 11", "at half four". If that time has already passed today it is taken as tomorrow.',
+        },
+      },
+      required: ['text'],
     },
   },
   {
@@ -83,6 +107,13 @@ export interface ToolEffect {
   summary: string;
   taskId?: string;
   taskName?: string;
+  /**
+   * Present when the mentor set a reminder. The device schedules it as a local
+   * notification — the server never holds it, because delivering one from here
+   * would mean running a push service for something the phone already does by
+   * itself, offline, for free.
+   */
+  reminder?: { text: string; inMinutes: number };
 }
 
 export interface ToolOutcome {
@@ -127,21 +158,91 @@ async function claimTaskId(uid: string) {
   return db.doc(paths.userTask(uid, String(Date.now() + Math.floor(Math.random() * 1000))));
 }
 
+/**
+ * Read the caller's tasks.
+ *
+ * Names and types are clamped on the way out. These documents are written
+ * directly by the client, and `list_tasks` feeds them straight back into the
+ * model as a functionResponse — so without a clamp, a task name is an
+ * arbitrary-length string the user can inject into their own prompt. Firestore
+ * rules bound the write; this bounds the read, which is the side that costs
+ * money.
+ */
 export async function readTasks(uid: string): Promise<TaskRecord[]> {
-  const snap = await db.collection(paths.userTasks(uid)).orderBy('createdAt', 'asc').limit(200).get();
+  const snap = await db
+    .collection(paths.userTasks(uid))
+    .orderBy('createdAt', 'asc')
+    .limit(PROMPT_LIMITS.taskListSize)
+    .get();
+
   return snap.docs.map((d) => {
     const data = d.data();
     return {
       id: d.id,
-      name: data.name ?? '',
+      name: String(data.name ?? '').slice(0, PROMPT_LIMITS.taskName),
       priority: data.priority ?? 'medium',
       energy: data.energy ?? 'medium',
-      time: data.time ?? 30,
-      type: data.type ?? 'General',
+      time: typeof data.time === 'number' ? data.time : 30,
+      type: String(data.type ?? 'General').slice(0, PROMPT_LIMITS.taskType),
       completed: data.completed === true,
-      dueDate: data.dueDate ?? null,
+      dueDate: data.dueDate ? String(data.dueDate).slice(0, 40) : null,
     };
   });
+}
+
+/** Human-readable delay, for the mentor's confirmation sentence. */
+function describeDelay(minutes: number): string {
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} from now`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `about ${hours} hour${hours === 1 ? '' : 's'} from now`;
+  const days = Math.round(hours / 24);
+  return `about ${days} day${days === 1 ? '' : 's'} from now`;
+}
+
+/**
+ * Work out how many minutes from now the reminder should fire.
+ *
+ * `at_time` is a wall-clock time on the *user's* phone, and the server has no
+ * idea what that is — a server in us-central1 resolving "11:00" against its own
+ * clock would fire six hours out. So the client sends its own local time with
+ * each turn and all of this is computed against that, then handed back as a
+ * relative delay the device can schedule without any timezone maths of its own.
+ *
+ * Returns null when there is nothing usable, so the mentor asks rather than
+ * guessing a time and confidently promising the wrong one.
+ */
+function resolveReminderMinutes(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): number | null {
+  const raw = Number(args.minutes_from_now);
+  if (Number.isFinite(raw) && raw > 0) {
+    return clampMinutes(Math.round(raw));
+  }
+
+  const at = String(args.at_time ?? '').trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(at);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const mins = Number(match[2]);
+  if (hours > 23 || mins > 59) return null;
+
+  // Without the client's clock we cannot place a wall-clock time at all.
+  const now = localWallClock(ctx.clientNow, ctx.tzOffsetMinutes);
+  if (!now) return null;
+
+  const target = new Date(now);
+  target.setUTCHours(hours, mins, 0, 0);
+  // A time that has already gone today means tomorrow.
+  if (target.getTime() <= now.getTime()) target.setUTCDate(target.getUTCDate() + 1);
+
+  return clampMinutes(Math.round((target.getTime() - now.getTime()) / 60_000));
+}
+
+function clampMinutes(minutes: number): number | null {
+  if (minutes < REMINDER_LIMITS.minMinutes) return null;
+  return Math.min(minutes, REMINDER_LIMITS.maxMinutes);
 }
 
 /**
@@ -151,15 +252,38 @@ export async function readTasks(uid: string): Promise<TaskRecord[]> {
  * so it can apologise or ask again, which is a far better experience than the
  * whole turn failing.
  */
+export interface ToolContext {
+  /** The user's own clock, sent with each turn. See resolveReminderMinutes. */
+  clientNow?: string;
+  /** Minutes east of UTC on the user's device. */
+  tzOffsetMinutes?: number;
+}
+
+/**
+ * A Date whose *UTC* fields read as the user's local wall clock.
+ *
+ * Shifting once here means every later comparison can use getUTCHours and
+ * setUTCHours and never think about zones again — and crucially the shift
+ * cancels out when subtracting two shifted times, so the resulting delay is
+ * correct regardless of where the server runs.
+ */
+export function localWallClock(clientNow?: string, tzOffsetMinutes?: number): Date | null {
+  if (!clientNow) return null;
+  const utc = Date.parse(clientNow);
+  if (Number.isNaN(utc)) return null;
+  return new Date(utc + (tzOffsetMinutes ?? 0) * 60_000);
+}
+
 export async function executeTaskTool(
   uid: string,
   name: string,
   args: Record<string, unknown>,
+  ctx: ToolContext = {},
 ): Promise<ToolOutcome> {
   try {
     switch (name) {
       case 'add_task': {
-        const taskName = String(args.name ?? '').trim().slice(0, 200);
+        const taskName = String(args.name ?? '').trim().slice(0, PROMPT_LIMITS.taskName);
         if (!taskName) {
           return {
             response: { ok: false, error: 'A task needs a name.' },
@@ -172,7 +296,7 @@ export async function executeTaskTool(
           priority: coerceLevel(args.priority, 'medium'),
           energy: coerceLevel(args.energy, 'medium'),
           time: Number.isFinite(minutes) && minutes > 0 ? Math.min(Math.round(minutes), 24 * 60) : 30,
-          type: String(args.type ?? 'General').slice(0, 60),
+          type: String(args.type ?? 'General').slice(0, PROMPT_LIMITS.taskType),
           dueDate: args.dueDate ? String(args.dueDate).slice(0, 40) : null,
           completed: false,
           source: 'mentor',
@@ -270,6 +394,41 @@ export async function executeTaskTool(
             summary: `Deleted "${target.name}"`,
             taskId: target.id,
             taskName: target.name,
+          },
+        };
+      }
+
+      case 'set_reminder': {
+        const text = String(args.text ?? '').trim().slice(0, REMINDER_LIMITS.maxTextChars);
+        if (!text) {
+          return {
+            response: { ok: false, error: 'A reminder needs something to say.' },
+            effect: { tool: name, ok: false, summary: 'Reminder not set — nothing to say.' },
+          };
+        }
+
+        const minutes = resolveReminderMinutes(args, ctx);
+        if (minutes === null) {
+          return {
+            response: {
+              ok: false,
+              error: 'Could not work out when. Ask them for a time, then call this again.',
+            },
+            effect: { tool: name, ok: false, summary: 'Reminder not set — unclear when.' },
+          };
+        }
+
+        const when = describeDelay(minutes);
+        return {
+          response: { ok: true, text, minutesFromNow: minutes, when },
+          effect: {
+            tool: name,
+            ok: true,
+            summary: `Reminder set for ${when}`,
+            // The device schedules it. Nothing is stored server-side: a local
+            // notification lives on the phone that will show it, and sending
+            // it through a push service would mean running one.
+            reminder: { text, inMinutes: minutes },
           },
         };
       }

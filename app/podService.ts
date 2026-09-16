@@ -23,9 +23,8 @@ import {
   query,
   serverTimestamp,
   where,
-} from 'firebase/firestore';
-import { FunctionsError } from 'firebase/functions';
-import { callable, db, ensureAuth } from './firebase';
+} from '@react-native-firebase/firestore';
+import { callable, callableErrorCode, db, ensureAuth } from './firebase';
 
 /* ------------------------------------------------------------------ *
  * Types
@@ -94,16 +93,16 @@ export class PodUnavailable extends Error {
 }
 
 function toPodError(err: unknown): PodUnavailable {
-  const code = err instanceof FunctionsError ? err.code : '';
-  const message = err instanceof FunctionsError ? err.message : 'Something went wrong.';
+  const code = callableErrorCode(err);
+  const message = (err as Error)?.message ?? 'Something went wrong.';
   switch (code) {
-    case 'functions/permission-denied':
+    case 'permission-denied':
       return new PodUnavailable('needs_pro', 'Pods are part of Soft Focus Pro.');
-    case 'functions/failed-precondition':
+    case 'failed-precondition':
       return new PodUnavailable('unverified_build', 'This app build could not be verified.');
-    case 'functions/unauthenticated':
+    case 'unauthenticated':
       return new PodUnavailable('signed_out', 'Sign in again to join a pod.');
-    case 'functions/unavailable':
+    case 'unavailable':
       return new PodUnavailable('paused', message);
     default:
       console.warn('[pods] Unexpected failure', err);

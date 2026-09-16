@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, deleteDoc, doc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, serverTimestamp, setDoc, writeBatch } from '@react-native-firebase/firestore';
 import { db, ensureAuth } from './firebase';
 
 type EnergyLevel = 'high' | 'medium' | 'low';

@@ -9,7 +9,7 @@
  * The subscription fields on this document are written only by the Admin SDK;
  * Firestore rules reject any client write that touches them.
  */
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from '@react-native-firebase/firestore';
 import { db, ensureAuth } from './firebase';
 import { loadUserProfile, type MentorTone } from './userProfileStorage';
 

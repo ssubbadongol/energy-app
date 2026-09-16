@@ -4,33 +4,69 @@
       "collectionGroup": "pods",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "isActive", "order": "ASCENDING" },
-        { "fieldPath": "topic", "order": "ASCENDING" },
-        { "fieldPath": "duration", "order": "ASCENDING" },
-        { "fieldPath": "memberCount", "order": "DESCENDING" }
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "topic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "duration",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "memberCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "pods",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "isActive", "order": "ASCENDING" },
-        { "fieldPath": "expiresAt", "order": "ASCENDING" },
-        { "fieldPath": "memberCount", "order": "ASCENDING" }
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "expiresAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "memberCount",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "members",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "active", "order": "ASCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "active",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
-      "collectionGroup": "mentorMessages",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [{ "fieldPath": "createdAt", "order": "ASCENDING" }]
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -39,21 +75,55 @@
       "fieldPath": "expiresAt",
       "ttl": true,
       "indexes": [
-        { "order": "ASCENDING", "queryScope": "COLLECTION" },
-        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
       ]
     },
     {
       "collectionGroup": "messages",
       "fieldPath": "expiresAt",
       "ttl": true,
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
     },
     {
       "collectionGroup": "members",
       "fieldPath": "expiresAt",
       "ttl": true,
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "mentorMessages",
+      "fieldPath": "createdAt",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
     }
   ]
 }

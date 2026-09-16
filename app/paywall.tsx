@@ -14,6 +14,7 @@ import { SageBackground } from '@/components/sage/Background';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 import { useEntitlement } from '@/components/pro/EntitlementProvider';
 import { getProOffering, purchase, restore, type ProOffering, type PurchasePackage } from './entitlements';
+import { devProAvailable, grantDevPro, revokeDevPro } from './devPro';
 
 const BENEFITS = [
   { title: 'AI Mentor', body: 'A companion that knows how you work, and can add, finish and clear tasks for you while you talk.' },
@@ -91,6 +92,26 @@ export default function Paywall() {
     await refresh();
     router.back();
   }, [refresh]);
+
+  /**
+   * Dev builds only, and the backend refuses anyway outside a development
+   * project — see `devPro.ts`. Kept on the paywall rather than behind a hidden
+   * gesture so that the thing you reach for when testing Pro is the same
+   * screen a real subscriber sees.
+   */
+  const toggleDevPro = useCallback(
+    async (grant: boolean) => {
+      setBusy('dev');
+      const result = grant ? await grantDevPro() : await revokeDevPro();
+      setBusy(null);
+      if (result.error) {
+        Alert.alert('Dev Pro', result.error);
+        return;
+      }
+      await refresh();
+    },
+    [refresh],
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
@@ -177,6 +198,31 @@ export default function Paywall() {
           Subscriptions renew automatically until cancelled. Manage or cancel any time in your App Store or
           Google Play account settings.
         </Text>
+
+        {devProAvailable ? (
+          <View style={styles.devBox}>
+            <Text style={styles.devLabel}>DEV BUILD</Text>
+            <Text style={[text.meta, { marginBottom: 10 }]}>
+              Grants a 24-hour Pro claim without a purchase. Development projects only.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                disabled={busy !== null}
+                onPress={() => toggleDevPro(true)}
+                style={[styles.devBtn, busy !== null && { opacity: 0.5 }]}
+              >
+                <Text style={styles.devBtnText}>{busy === 'dev' ? '…' : 'Grant Pro'}</Text>
+              </Pressable>
+              <Pressable
+                disabled={busy !== null}
+                onPress={() => toggleDevPro(false)}
+                style={[styles.devBtn, busy !== null && { opacity: 0.5 }]}
+              >
+                <Text style={styles.devBtnText}>Revoke</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -273,5 +319,35 @@ const styles = StyleSheet.create({
     color: sage.fgMuted,
     textAlign: 'center',
     marginTop: 8,
+  },
+
+  /* Dev-only. Deliberately unlovely so it can never be mistaken for product. */
+  devBox: {
+    marginTop: 28,
+    padding: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: sage.fgMuted,
+  },
+  devLabel: {
+    fontFamily: font.bodySemi,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: sage.fgMuted,
+    marginBottom: 6,
+  },
+  devBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: sage.fgMuted,
+    alignItems: 'center',
+  },
+  devBtnText: {
+    fontFamily: font.bodySemi,
+    fontSize: 12,
+    color: sage.fgMuted,
   },
 });

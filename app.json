@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "energy-app",
-    "slug": "energy-app",
+    "slug": "soft-focus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -81,9 +81,11 @@
     },
     "extra": {
       "router": {},
+      "appVariant": "development",
       "eas": {
-        "projectId": "2ab337b1-1cb8-4575-ba2d-41afae4e153e"
+        "projectId": "6910202e-71e6-4c79-b7bd-c306a35e8696"
       }
-    }
+    },
+    "owner": "koyonix"
   }
 }

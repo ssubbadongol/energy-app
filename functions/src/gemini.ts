@@ -6,7 +6,7 @@
  * safety settings visible at the call site instead of buried in a wrapper.
  */
 import { logger } from 'firebase-functions/v2';
-import { GEMINI_ENDPOINT, GEMINI_MODEL, MAX_OUTPUT_TOKENS } from './config';
+import { GEMINI_ENDPOINT, GEMINI_MODEL, MAX_OUTPUT_TOKENS, THINKING_CONFIG } from './config';
 
 export type HarmCategory =
   | 'HARM_CATEGORY_HARASSMENT'
@@ -27,6 +27,15 @@ export interface GeminiPart {
   text?: string;
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
+  /**
+   * Opaque reasoning handle Gemini 3.x attaches to a function call.
+   *
+   * It must be echoed back verbatim when the call is replayed in the next
+   * turn's history, or the API rejects the whole request with 400
+   * INVALID_ARGUMENT. We never read it — it only has to survive the round
+   * trip. See https://ai.google.dev/gemini-api/docs/thought-signatures
+   */
+  thoughtSignature?: string;
 }
 
 export interface GeminiContent {
@@ -50,6 +59,13 @@ export interface GenerateResult {
   text: string | null;
   functionCall: { name: string; args: Record<string, unknown> } | null;
   finishReason: string | null;
+  /**
+   * The model's function-call part exactly as received.
+   *
+   * Replay this rather than reconstructing `{ name, args }`, so the
+   * thoughtSignature travels with it.
+   */
+  functionCallPart: GeminiPart | null;
   /** Ratings for the *model output*. */
   safetyRatings: SafetyRating[];
   /** Ratings for the *prompt* — what the pod safety check actually reads. */
@@ -106,9 +122,10 @@ export async function generateContent(opts: GenerateOptions): Promise<GenerateRe
       temperature,
       topP: 0.95,
       maxOutputTokens,
-      // Flash-Lite can still spend tokens on reasoning. We want none of that:
-      // it is invisible to the user and billed like output.
-      thinkingConfig: { thinkingBudget: 0 },
+      // Flash-Lite can still spend tokens on reasoning. We want as little of
+      // that as the model allows: it is invisible to the user and billed like
+      // output. See THINKING_CONFIG for why this is not a zero budget.
+      thinkingConfig: THINKING_CONFIG,
     },
     safetySettings,
   };
@@ -154,7 +171,8 @@ export async function generateContent(opts: GenerateOptions): Promise<GenerateRe
   const candidate = data?.candidates?.[0];
   const parts: GeminiPart[] = candidate?.content?.parts ?? [];
 
-  const fc = parts.find((p) => p.functionCall)?.functionCall ?? null;
+  const fcPart = parts.find((p) => p.functionCall) ?? null;
+  const fc = fcPart?.functionCall ?? null;
   const text = parts
     .filter((p) => typeof p.text === 'string' && p.text.length > 0)
     .map((p) => p.text as string)
@@ -164,6 +182,7 @@ export async function generateContent(opts: GenerateOptions): Promise<GenerateRe
   return {
     text: text.length > 0 ? text : null,
     functionCall: fc ? { name: fc.name, args: (fc.args ?? {}) as Record<string, unknown> } : null,
+    functionCallPart: fcPart,
     finishReason: candidate?.finishReason ?? null,
     safetyRatings: (candidate?.safetyRatings ?? []) as SafetyRating[],
     promptSafetyRatings: (data?.promptFeedback?.safetyRatings ?? []) as SafetyRating[],
