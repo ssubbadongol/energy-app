@@ -23,6 +23,8 @@ export interface Clip {
   height: number;
   /** Sprite frames per second. */
   fps: number;
+  /** The single frame to hold under Reduce Motion — the most characterful one. */
+  still: number;
 }
 
 /**
@@ -47,6 +49,7 @@ export const CLIPS: Record<ClipName, Clip> = {
     width: 75,
     height: 74,
     fps: 9,
+    still: 0,
   },
   working: {
     sources: [
@@ -58,6 +61,7 @@ export const CLIPS: Record<ClipName, Clip> = {
     width: 112,
     height: 76,
     fps: 3,
+    still: 0,
   },
   sleeping: {
     sources: [
@@ -68,6 +72,7 @@ export const CLIPS: Record<ClipName, Clip> = {
     width: 124,
     height: 94,
     fps: 1.1,
+    still: 2,
   },
   happy: {
     sources: [
@@ -78,6 +83,7 @@ export const CLIPS: Record<ClipName, Clip> = {
     width: 96,
     height: 81,
     fps: 2.4,
+    still: 1,
   },
 };
 
