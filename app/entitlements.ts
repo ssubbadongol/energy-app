@@ -258,6 +258,29 @@ export async function restore(): Promise<PurchaseOutcome> {
 }
 
 /**
+ * Re-point RevenueCat at a different Firebase user.
+ *
+ * `configure` bound the SDK to whichever uid was current at startup, and it
+ * keeps answering for that user until told otherwise. So after a sign-in to an
+ * existing account, a sign-out, or a deletion, this has to run — otherwise a
+ * freshly signed-in subscriber is told they are on the free tier, or worse, a
+ * new guest on a shared phone inherits the previous user's entitlement.
+ *
+ * `logIn` rather than re-`configure`: configuring twice in one process is
+ * unsupported, and `logIn` is the SDK's own answer to exactly this.
+ */
+export async function switchPurchasesUser(uid: string): Promise<void> {
+  const sdk = loadPurchases();
+  if (!sdk?.logIn) return;
+  if (!(await configurePurchases())) return;
+  try {
+    await sdk.logIn(uid);
+  } catch (err) {
+    console.warn('[Purchases] Could not switch user', err);
+  }
+}
+
+/**
  * Subscribe to RevenueCat's own change notifications (renewal, expiry,
  * cross-device restore). Each one re-syncs the backend claim so a lapsed
  * subscription loses access without waiting for the next cold start.

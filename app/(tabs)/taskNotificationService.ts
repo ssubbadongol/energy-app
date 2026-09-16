@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
+import { devLog } from '../devLog';
 
 const CHANNEL_ID = 'task-focus';
 
@@ -53,10 +54,10 @@ export async function scheduleTaskNotifications(
 
   const scheduleAt = async (id: string, date: Date, body: string) => {
     if (date <= now) {
-      console.log(`Skipping past notification [${id}] at:`, date.toISOString());
+      devLog(`Skipping past notification [${id}] at:`, date.toISOString());
       return;
     }
-    console.log(`Scheduling notification [${id}] at:`, date.toISOString());
+    devLog(`Scheduling notification [${id}] at:`, date.toISOString());
     await Notifications.scheduleNotificationAsync({
       identifier: id,
       content: {

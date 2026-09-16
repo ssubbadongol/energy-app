@@ -25,6 +25,7 @@ import {
   where,
 } from '@react-native-firebase/firestore';
 import { callable, callableErrorCode, db, ensureAuth } from './firebase';
+import { subscribeToBlocks } from './podSafety';
 
 /* ------------------------------------------------------------------ *
  * Types
@@ -264,22 +265,49 @@ async function getAlias(podId: string, uid: string): Promise<string> {
   return alias;
 }
 
+/**
+ * Live messages for a room, with blocked members filtered out.
+ *
+ * Filtering happens here rather than in the query because Firestore cannot
+ * express "not in this set" against an arbitrary list, and because the rules
+ * deliberately let a member read the whole room — blocking is a per-viewer
+ * preference, not a change to what the room contains.
+ *
+ * Both listeners feed one render: `emit` re-runs the filter whenever either
+ * the messages or the block set changes, so blocking someone clears their
+ * messages from the screen immediately rather than on the next reopen.
+ */
 export function subscribeToPodMessages(
   podId: string,
   onChange: (messages: PodMessage[]) => void,
   onError?: (err: Error) => void,
 ): () => void {
-  let unsubscribe: (() => void) | null = null;
+  let unsubscribeMessages: (() => void) | null = null;
+  let unsubscribeBlocks: (() => void) | null = null;
   let cancelled = false;
+
+  let latest: PodMessage[] = [];
+  let blocked = new Set<string>();
+
+  const emit = () => {
+    if (cancelled) return;
+    onChange(latest.filter((m) => !(m.uid && blocked.has(m.uid))));
+  };
 
   ensureAuth()
     .then((uid) => {
       if (cancelled) return;
+
+      unsubscribeBlocks = subscribeToBlocks((next) => {
+        blocked = next;
+        emit();
+      });
+
       const q = query(collection(db, 'pods', podId, 'messages'), orderBy('createdAt', 'asc'), fsLimit(200));
-      unsubscribe = onSnapshot(
+      unsubscribeMessages = onSnapshot(
         q,
         (snap) => {
-          const messages = snap.docs.map((d) => {
+          latest = snap.docs.map((d) => {
             const data = d.data();
             return {
               id: d.id,
@@ -293,7 +321,7 @@ export function subscribeToPodMessages(
               mine: data.uid === uid,
             };
           });
-          onChange(messages);
+          emit();
         },
         (err) => {
           console.warn('[pods] Message listener failed', err);
@@ -305,7 +333,8 @@ export function subscribeToPodMessages(
 
   return () => {
     cancelled = true;
-    unsubscribe?.();
+    unsubscribeMessages?.();
+    unsubscribeBlocks?.();
   };
 }
 

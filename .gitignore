@@ -56,3 +56,9 @@ functions/lib/
 
 # Env example is committed; real env files are not
 !.env.example
+
+# Firebase deploy cache and emulator logs
+.firebase/
+firestore-debug.log
+firebase-debug.log
+ui-debug.log

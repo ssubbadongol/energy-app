@@ -15,10 +15,13 @@ import {
   getEntitlement,
   isPurchasesAvailable,
   onEntitlementChange,
+  switchPurchasesUser,
   type EntitlementState,
 } from '@/app/entitlements';
 import { setupAppCheck } from '@/app/appCheck';
-import { ensureAuth, logFirebaseIdentity } from '@/app/firebase';
+import { onAccountSwitched } from '@/app/accountService';
+import { identify } from '@/app/monitoring';
+import { auth, ensureAuth, logFirebaseIdentity } from '@/app/firebase';
 
 interface EntitlementContextValue extends EntitlementState {
   /** Re-read entitlement (after a purchase, or on returning to a gated tab). */
@@ -104,6 +107,11 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
       // sign-in have settled, so a permissions failure can be attributed.
       logFirebaseIdentity();
 
+      // Tie crash reports to this account, so a crash can be matched to the
+      // data that produced it.
+      const uid = auth.currentUser?.uid;
+      if (uid) identify(uid);
+
       await configurePurchases().catch(() => false);
       await refresh();
     })().finally(() => {
@@ -114,9 +122,25 @@ export function EntitlementProvider({ children }: { children: React.ReactNode })
       if (mounted.current) setState((prev) => ({ ...prev, isPro, loading: false }));
     });
 
+    /**
+     * Follow the signed-in user.
+     *
+     * A sign-in to an existing account, a sign-out, or a deletion all change
+     * the uid. RevenueCat was configured with the old one and will keep
+     * answering for it — which would tell a subscriber who just signed in on a
+     * new phone that they are on the free tier, and could hand a new guest on
+     * a shared phone the previous user's Pro.
+     */
+    const unsubscribeSwitch = onAccountSwitched(async (uid) => {
+      await switchPurchasesUser(uid);
+      identify(uid);
+      await refresh();
+    });
+
     return () => {
       mounted.current = false;
       unsubscribe();
+      unsubscribeSwitch();
     };
   }, [refresh]);
 

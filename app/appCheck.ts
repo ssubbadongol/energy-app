@@ -21,16 +21,29 @@ import {
   initializeAppCheck,
   ReactNativeFirebaseAppCheckProvider,
 } from '@react-native-firebase/app-check';
+import { devLog } from './devLog';
 
 /**
  * Debug token for simulators and sideloaded builds, where Play Integrity and
  * App Attest cannot produce a real attestation.
  *
- * Local dev only. It must never be set in a build you ship: a registered debug
- * token in a public bundle is a permanent App Check bypass for anyone who
- * extracts it.
+ * A registered debug token is a **bearer credential**: anyone holding the
+ * string can mint valid App Check tokens for this project from curl, with no
+ * copy of the app and no device. So it must never reach a shipped bundle.
+ *
+ * The `__DEV__ ?` is not decoration and is not the same as the check below.
+ * `EXPO_PUBLIC_*` values are inlined into the bundle as string literals at
+ * build time, so reading the variable at all was enough to embed the token —
+ * and it did: a production export was scanned and the token was present, even
+ * though the provider logic below correctly chose Play Integrity and never
+ * used it. The value leaked without the feature being enabled.
+ *
+ * Metro folds `__DEV__` to `false` for any production bundle and the minifier
+ * drops the dead branch, so wrapping the read is what actually removes the
+ * literal. This is now structural rather than a matter of remembering to clear
+ * an environment variable before a build.
  */
-const DEBUG_TOKEN = process.env.EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN;
+const DEBUG_TOKEN = __DEV__ ? process.env.EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN : undefined;
 
 /** Which provider this build asks for. Logged, because it explains a lot. */
 const PROVIDER_NAME = __DEV__ && DEBUG_TOKEN ? 'debug' : 'playIntegrity';
@@ -93,7 +106,7 @@ export async function setupAppCheck(): Promise<boolean> {
     await getToken(appCheckInstance, /* forceRefresh */ false);
 
     active = true;
-    console.log(`[AppCheck] Active (${Platform.OS}) provider=${PROVIDER_NAME}`);
+    devLog(`[AppCheck] Active (${Platform.OS}) provider=${PROVIDER_NAME}`);
     return true;
   } catch (err) {
     console.error(

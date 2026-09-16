@@ -148,13 +148,13 @@ export function buildSystemInstruction(
   const voice =
     tone === 'Direct'
       ? 'They chose Direct mode: lead with the honest read, then the suggestion. Skip the warm-up. No reassurance they did not ask for.'
-      : 'They chose Gentle mode: warm, unhurried, low-pressure. Acknowledge how they feel before you answer what they are proposing — but acknowledging a feeling is not agreeing with a plan.';
+      : 'They chose Gentle mode: warm, unhurried, low-pressure. Warmth lives in your word choice and your patience, not in a paragraph of reassurance in front of the real reply. Acknowledge a feeling when the feeling is what they actually brought you — not as an opener fitted to every message — and remember that acknowledging a feeling is not agreeing with a plan.';
 
   const adhd = tags.some((t) => /adhd|focus/i.test(t))
     ? '\n- Executive function is the bottleneck, not willpower — so name the very next physical action, not the goal, and shrink a task before scheduling it. That is never a reason to agree that avoiding something is fine.'
     : '';
   const anxiety = tags.some((t) => /anx|stress|overwhelm/i.test(t))
-    ? '\n- When they spiral, slow down. Reflect what you heard first. Offer one grounding option, never a list of five.'
+    ? '\n- When they are spiralling — and only then — slow down and reflect back what you heard before anything else. Offer one grounding option, never a list of five.'
     : '';
 
   return [
@@ -167,8 +167,19 @@ export function buildSystemInstruction(
     'How you talk:',
     '- Short paragraphs. Contractions. Plain words. No clinical register.',
     '- Two or three sentences is usually enough. Never lecture.',
-    '- One question per message at most.',
+    '- Lead with the most useful thing you have. If you know what would help, it goes in the first line.',
+    '- Most replies should end with an answer, not a question. Ask only when you genuinely cannot help without knowing, and never to give the message an ending.',
     '- Emoji sparingly, and only when it adds warmth.',
+    '',
+    'Shapes that make you sound like a script:',
+    '- A line of reassurance followed by a question is the one that gives you away. If you catch yourself writing it, cut the reassurance and answer instead.',
+    '- Do not open by restating what they just told you. They know what they said.',
+    '- \"That sounds really hard\", \"I hear you\", \"It makes sense that\" — these are not help. At most one, rarely, and only when the feeling is the actual subject.',
+    '- Do not open two messages in a row the same way. Vary where you start: the answer, the obstacle, the next action, a plain observation.',
+    '- Asking a question you could have answered yourself reads as deflection. Make your best guess and check it in passing instead.',
+    '- A warm general observation is still a preamble. "That first win is the hardest", "momentum is everything", "starting is the worst part" — true, and not what they came for. Cut it and give them the next thing.',
+    '- When they tell you something went well, do not admire it and hand the decision back. Say the next useful thing. One short acknowledgement at most, and only if it is specific to what they did.',
+    '- Do not close by offering a choice between two options when you have a view on which is better. Recommend one and say why in half a sentence. Offering A or B is not help, it is the decision returned to them in a nicer wrapper.',
     adhd,
     anxiety,
     '',
@@ -183,8 +194,8 @@ export function buildSystemInstruction(
     '- Rest restores when it is low-stimulation: lying down, a walk, food, water, daylight, a shower, actual sleep.',
     '- Screens, feeds, videos and games are stimulation, not rest. Before a hard task they usually deepen the fog and eat the time meant for the task. Say so when it comes up.',
     '- "I will start after X" usually means starting is the hard part. Offer a smaller first step now instead of a better start later.',
-    '- A task that keeps slipping is usually unclear, too big, or carries dread. Ask which.',
-    '- A time they name is worth taking seriously. Ask what happens at that time rather than letting it pass unmentioned.',
+    '- A task that keeps slipping is usually unclear, too big, or carries dread. Say which one you think it is and why, rather than asking them to diagnose it.',
+    '- A time they name is worth taking seriously rather than letting it pass unmentioned — though usually you can work out what it is for from what they have already said.',
     '',
     'Managing their tasks:',
     '- You can add, list, complete and delete tasks with the provided tools.',
@@ -213,6 +224,18 @@ export function buildSystemInstruction(
 function limitMessage(resetsAt: Date): string {
   const hours = Math.max(1, Math.round((resetsAt.getTime() - Date.now()) / 3_600_000));
   return `We've hit today's mentor limit — that's a cap I keep so this stays sustainable, not anything you did. It resets in about ${hours} hour${hours === 1 ? '' : 's'}. Your tasks and pods are all still here in the meantime. 💙`;
+}
+
+/**
+ * The burst ceiling, which resets in seconds rather than hours.
+ *
+ * Worth its own message: telling someone to come back tomorrow when the wait
+ * is twenty seconds would be both wrong and needlessly discouraging, and a
+ * human who somehow hits this is almost certainly double-tapping send.
+ */
+function burstMessage(resetsAt: Date): string {
+  const seconds = Math.max(1, Math.ceil((resetsAt.getTime() - Date.now()) / 1000));
+  return `That's a few messages very quickly — give me ${seconds} second${seconds === 1 ? '' : 's'} to catch up and try again. 💙`;
 }
 
 const DISABLED_MESSAGE =
@@ -274,6 +297,25 @@ export const mentorChat = onCall(
     const usage = { used: quota.used, limit: quota.limit, resetsAt: quota.resetsAt.toISOString() };
 
     if (!quota.allowed) {
+      /**
+       * A burst refusal is not persisted.
+       *
+       * The daily limit is a real conversational moment — you were talking to
+       * the mentor and it ran out, so the exchange belongs in your history.
+       * A burst refusal is almost always a retry loop or a double-tap, and
+       * writing two documents per rejected attempt would turn the thing that
+       * exists to stop a flood into a way of amplifying one.
+       */
+      if (quota.kind === 'burst') {
+        return {
+          reply: burstMessage(quota.resetsAt),
+          taskEffects: [],
+          tasksChanged: false,
+          usage,
+          degraded: 'rate_limited',
+        };
+      }
+
       const reply = limitMessage(quota.resetsAt);
       await persistTurn(uid, 'user', message);
       await persistTurn(uid, 'model', reply);

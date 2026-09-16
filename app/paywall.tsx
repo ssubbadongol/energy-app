@@ -15,6 +15,10 @@ import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 import { useEntitlement } from '@/components/pro/EntitlementProvider';
 import { getProOffering, purchase, restore, type ProOffering, type PurchasePackage } from './entitlements';
 import { devProAvailable, grantDevPro, revokeDevPro } from './devPro';
+import { AuthSheet } from '@/components/account/AuthSheet';
+import { currentAccount, isRecoverable } from './accountService';
+import { legal, openLegal } from './legal';
+import { track } from './monitoring';
 
 const BENEFITS = [
   { title: 'AI Mentor', body: 'A companion that knows how you work, and can add, finish and clear tasks for you while you talk.' },
@@ -48,6 +52,7 @@ export default function Paywall() {
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
+    track('paywall_viewed');
     let alive = true;
     getProOffering().then((result) => {
       if (!alive) return;
@@ -62,8 +67,31 @@ export default function Paywall() {
     };
   }, []);
 
+  /**
+   * The package the user picked before we asked them to make an account.
+   *
+   * Held rather than discarded so accepting the account prompt continues
+   * straight into the purchase they were already making — asking someone to
+   * find the button again after a signup is how a sale is lost.
+   */
+  const [pendingPurchase, setPendingPurchase] = useState<PurchasePackage | null>(null);
+
   const buy = useCallback(
     async (pkg: PurchasePackage) => {
+      /**
+       * Pro needs a real account.
+       *
+       * An anonymous uid dies with the app install, and a subscription keyed to
+       * one is a subscription the user loses on their next phone — which we
+       * would then have to restore by hand, for someone who has already paid.
+       * Guests keep every free feature; this is the one gate.
+       */
+      const account = await currentAccount();
+      if (!isRecoverable(account.state)) {
+        setPendingPurchase(pkg);
+        return;
+      }
+
       setBusy(pkg.identifier);
       const result = await purchase(pkg);
       setBusy(null);
@@ -73,6 +101,7 @@ export default function Paywall() {
         Alert.alert('Purchase not completed', result.error);
         return;
       }
+      track('purchase_completed', { period: pkg.product.subscriptionPeriod ?? 'unknown' });
       // The purchase call already reconciled the claim and refreshed the
       // token; this just pulls the new state into the provider.
       await refresh();
@@ -199,6 +228,23 @@ export default function Paywall() {
           Google Play account settings.
         </Text>
 
+        {/*
+          Apple 3.1.2 requires tappable Terms of Use and Privacy Policy links on
+          the screen where the purchase happens, inside the binary — links on
+          the store listing alone are one of the most common subscription
+          rejections. These open in an in-app browser so the purchase flow is
+          not lost to read them.
+        */}
+        <View style={styles.legalLinks}>
+          <Pressable onPress={() => void openLegal(legal.terms)} hitSlop={8} accessibilityRole="link">
+            <Text style={styles.legalLink}>Terms of Use</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={() => void openLegal(legal.privacy)} hitSlop={8} accessibilityRole="link">
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
+        </View>
+
         {devProAvailable ? (
           <View style={styles.devBox}>
             <Text style={styles.devLabel}>DEV BUILD</Text>
@@ -224,6 +270,19 @@ export default function Paywall() {
           </View>
         ) : null}
       </ScrollView>
+
+      <AuthSheet
+        mode={pendingPurchase ? 'create' : null}
+        reason="Pro follows your account, not your phone. Add an email now and your subscription survives a new device, a reinstall, or a lost phone."
+        onClose={() => setPendingPurchase(null)}
+        onDone={async () => {
+          const pkg = pendingPurchase;
+          setPendingPurchase(null);
+          await refresh();
+          // Straight back into the purchase they started.
+          if (pkg) await buy(pkg);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -305,6 +364,20 @@ const styles = StyleSheet.create({
     ...curve,
   },
   restore: { fontFamily: font.ui, fontSize: 13, color: sage.primaryInk, textAlign: 'center' },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  legalLink: {
+    fontFamily: font.ui,
+    fontSize: 12.5,
+    color: sage.primaryInk,
+    textDecorationLine: 'underline',
+  },
+  legalDot: { fontFamily: font.ui, fontSize: 12.5, color: sage.fgFaint },
   footnote: {
     fontFamily: font.body,
     fontSize: 13,

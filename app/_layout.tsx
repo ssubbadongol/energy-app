@@ -31,13 +31,25 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { handleNotificationResponse, setupNotifications } from './(tabs)/notificationService';
+import { syncLifeReminders } from './lifeReminderService';
+import { initializeLifeTasks } from './lifeTaskStorage';
+import { initMonitoring } from './monitoring';
 import { EntitlementProvider } from '@/components/pro/EntitlementProvider';
 import { BuildBadge } from '@/components/BuildBadge';
+import { CelebrationProvider } from '@/components/sage/Celebration';
 import { sage } from '@/theme/sage';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
+
+/**
+ * Expo Router looks for this export by name and wraps the whole app in it.
+ *
+ * Without one, an uncaught render error in a shipped build is a white screen
+ * with no way out and nothing reported to anyone.
+ */
+export { ErrorScreen as ErrorBoundary } from '@/components/ErrorScreen';
 
 const paper = { bg: sage.bg, fg: sage.fg, rule: sage.ruleStrong, accent: sage.primary };
 
@@ -87,7 +99,19 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    setupNotifications();
+    // Before anything else that could fail, so a crash during startup is still
+    // reported. Cheap and synchronous — it only flips collection flags.
+    initMonitoring();
+
+    // Life reminders are rebuilt here rather than on the Life tab, because the
+    // schedule has to survive a cold start the user never navigates into — and
+    // it has to come after the permission prompt and after the tasks are read
+    // off disk, neither of which has happened yet at this point.
+    void setupNotifications()
+      .then(() => initializeLifeTasks())
+      .then((tasks) => syncLifeReminders(tasks))
+      .catch((err) => console.warn('[life] Reminder sync on boot failed', err));
+
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       handleNotificationResponse(response);
     });
@@ -106,14 +130,20 @@ export default function RootLayout() {
             stack means the Mentor and Pods tabs never disagree about whether
             the user is subscribed.
           */}
-          <EntitlementProvider>
-            <Stack screenOptions={{ contentStyle: { backgroundColor: paper.bg } }}>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-              <Stack.Screen name="paywall" options={{ headerShown: false, presentation: 'modal' }} />
-              <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-            </Stack>
-          </EntitlementProvider>
+          {/*
+            Outside the Stack so a burst can outlive the row it came from and
+            draw over the tab bar — confetti clipped to a list item is just a
+            coloured rectangle.
+          */}
+          <CelebrationProvider>
+            <EntitlementProvider>
+              <Stack screenOptions={{ contentStyle: { backgroundColor: paper.bg } }}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
+                <Stack.Screen name="paywall" options={{ headerShown: false, presentation: 'modal' }} />
+              </Stack>
+            </EntitlementProvider>
+          </CelebrationProvider>
           {/* Dark glyphs: the app is warm paper, not a dark theme. */}
           <StatusBar style="dark" />
           {/* Outside the Stack so it survives navigation. No-op in production. */}

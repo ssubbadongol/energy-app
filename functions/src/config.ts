@@ -50,14 +50,50 @@ export const MAX_OUTPUT_TOKENS = {
   mentorToolSummary: 300,
   /** Safety classification: ratings only, never a usable completion. */
   podSafetyCheck: 1,
+  /**
+   * Breaking a task into steps. A JSON array of short imperatives and nothing
+   * else, so this is tight on purpose — eight steps of a dozen words each does
+   * not need more, and a larger budget would only buy padding.
+   */
+  taskBreakdown: 250,
 } as const;
 
 /* ------------------------------------------------------------------ *
  * Cost controls
  * ------------------------------------------------------------------ */
 
+/**
+ * Steps a breakdown may produce.
+ *
+ * A ceiling on cost, but mostly a product decision: a twenty-step checklist is
+ * its own kind of overwhelm, which is the thing this feature exists to reduce.
+ */
+export const TASK_BREAKDOWN_MAX_STEPS = 8;
+
 /** Mentor messages a single user may send per UTC day. */
 export const MENTOR_DAILY_LIMIT = 50;
+
+/**
+ * Short-window burst ceiling, enforced alongside the daily cap.
+ *
+ * The daily limit alone bounds the monthly bill but says nothing about *rate*,
+ * and all fifty could be spent in about ten seconds by a script — or by a
+ * retry loop in a client that is being told "try again". Three things go wrong
+ * when that happens, in order:
+ *
+ *   - Gemini's own per-minute quota trips, and the failures land on everyone
+ *     using the app at that moment, not just the person bursting.
+ *   - A month of one user's spend arrives inside a minute, so the budget
+ *     kill switch — which reacts to a threshold, not a slope — cannot get in
+ *     front of it.
+ *   - Concurrent function instances multiply, each holding a Gemini request
+ *     open.
+ *
+ * Six a minute is far above deliberate human use (a thoughtful reply takes
+ * longer than ten seconds to read) and far below what a loop produces, so it
+ * is invisible to real users and immediate for scripted ones.
+ */
+export const MENTOR_BURST_LIMIT = { messages: 6, windowMs: 60_000 } as const;
 
 /** Conversation turns replayed to the model each request. */
 export const MENTOR_HISTORY_TURNS = 20;
@@ -89,6 +125,22 @@ export const PROMPT_LIMITS = {
   profileGoal: 120,
   taskName: 200,
   taskType: 60,
+  /**
+   * One subtask label, as replayed into the mentor's prompt.
+   *
+   * This is the clamp that actually bounds the cost, because `firestore.rules`
+   * cannot iterate a list and so can only limit how many subtasks there are,
+   * not how long each one is. See the comment on `validTask()`.
+   */
+  subtaskName: 80,
+  /**
+   * What the user types when asked what a task involves.
+   *
+   * Sent once per breakdown rather than replayed every turn, so this can be
+   * generous compared with the profile limits — but it is still user-controlled
+   * text heading for a prompt, so it is still bounded.
+   */
+  breakdownContext: 300,
   /** Tasks handed to the model in one `list_tasks` response. */
   taskListSize: 60,
 } as const;
@@ -155,6 +207,28 @@ export const DEV_PROJECT_IDS: readonly string[] = ['soft-focus-app'];
  */
 export const DEV_ACCESS_DOC = 'config/devAccess';
 
+/**
+ * Firebase app IDs belonging to the **development** build variant.
+ *
+ * This is the guard that `DEV_PROJECT_IDS` was supposed to be and is not:
+ * with one project serving dev and production, the project check passes in
+ * production and contributes nothing.
+ *
+ * App IDs are different. `request.app.appId` on a callable comes from the
+ * verified App Check token, which attests *which registered app* made the
+ * call — it is signed by Play Integrity or App Attest and a production build
+ * cannot present a dev app's attestation. So this is a real boundary rather
+ * than a self-reported one, and it means a shipped build is refused even if
+ * `devProEnabled` is left on and a production user's uid ends up on the
+ * allowlist by mistake.
+ *
+ * See `app.config.ts` for the variant → bundle id → app id mapping.
+ */
+export const DEV_APP_IDS: readonly string[] = [
+  '1:162840832537:android:29f7b42863c08263395888', // Soft Focus Dev (Android)
+  '1:162840832537:ios:60badb758bc497de395888', // Soft Focus Dev (iOS)
+];
+
 /** How long a dev Pro grant lasts before it expires on its own. */
 export const DEV_PRO_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -204,13 +278,32 @@ export const paths = {
   mentorMessages: (uid: string) => `users/${uid}/mentorMessages`,
   mentorCounter: (uid: string) => `users/${uid}/counters/mentorDaily`,
   supportPrompts: (uid: string) => `users/${uid}/supportPrompts`,
+  /** Uids this user has blocked. Document id is the blocked uid. */
+  userBlocks: (uid: string) => `users/${uid}/blocks`,
   pods: 'pods',
   pod: (podId: string) => `pods/${podId}`,
   podMembers: (podId: string) => `pods/${podId}/members`,
   podMember: (podId: string, uid: string) => `pods/${podId}/members/${uid}`,
   podMessages: (podId: string) => `pods/${podId}/messages`,
   moderationFlags: 'moderationFlags',
+  /**
+   * Kill switches. **Client-readable** — the app reads this to show an honest
+   * notice instead of a generic error.
+   *
+   * Nothing commercially sensitive may ever be written here. Anyone who
+   * installs the app is signed in, so a field on this document is a field
+   * published to the world. Budget figures go to `configBudgetState` below.
+   */
   configFlags: 'config/flags',
+  /**
+   * Budget telemetry: spend, ceiling, ratio, budget name.
+   *
+   * Server-only. Not matched by any rule, so `firestore.rules` denies it by
+   * default — which is the point. This used to live on `config/flags`, where
+   * every user of the app could read the project's actual monthly Cloud spend
+   * and watch how close it was to tripping the kill switch.
+   */
+  configBudgetState: 'config/budgetState',
   revenueCatEvent: (eventId: string) => `revenueCatEvents/${eventId}`,
 } as const;
 

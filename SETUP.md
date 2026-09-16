@@ -25,9 +25,47 @@ project isolation.
 | 7 | `GoogleService-Info.plist` | Firebase Console → iOS app | repo root |
 | 7b | `google-services.dev.json` *(optional)* | Firebase Console → dev project | repo root, for the dev variant |
 | 8 | App Store / Play subscription products | App Store Connect + Play Console | RevenueCat dashboard |
+| 9 | Gmail app password for the support mailbox | [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) | Secret Manager `MODERATION_ALERT_PASSWORD` |
 
 Nothing here belongs in git. `.env`, `google-services.json` and
 `GoogleService-Info.plist` should all be gitignored (see §9).
+
+---
+
+## 0.1 Identity, and the one thing still gating publication
+
+Settled, and consistent across the repo:
+
+| | |
+|---|---|
+| Data controller | **Shashank Subba Dongol** (UK GDPR requires a named one) |
+| Support / reporting address | **support.softfocus@gmail.com** |
+| Minimum age | **16** |
+
+That address appears in seven places and they must not drift, or the app
+publishes one contact and mails reports to another: the five files under
+`public/`, `SUPPORT_EMAIL` in `app/legal.ts`, and `ALERT_ADDRESS` in
+`functions/src/reports.ts`. The Gmail app password in Secret Manager belongs to
+the same account — it authenticates as itself to mail itself.
+
+**Gemini tier — currently FREE, and the privacy policy says so.**
+
+As of 15 September 2026 the API key is on the free tier, which means Google may
+use prompts and responses to improve its models and human reviewers may read
+them. `public/privacy.html` discloses that prominently, and `public/terms.html`
+§6 points at it.
+
+When you move to the paid tier — where prompts and responses are excluded from
+training and human review — **rewrite both of those sections and bump the "Last
+updated" date**. Continuing to warn users about something that no longer applies
+is its own kind of inaccuracy, and the warning is strong enough to cost you
+mentor usage.
+
+Check which tier the key is actually on at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey). Blaze billing
+on the Firebase project is **not** the same thing: paid tier depends on the
+Cloud project behind the *API key* having billing linked, and since March 2026
+new AI Studio users also need a prepaid balance.
 
 ---
 
@@ -76,7 +114,42 @@ cd functions && npm install && cd ..
 firebase functions:secrets:set GEMINI_API_KEY
 firebase functions:secrets:set REVENUECAT_API_KEY
 firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET
+firebase functions:secrets:set MODERATION_ALERT_PASSWORD
 ```
+
+`MODERATION_ALERT_PASSWORD` is a **Gmail app password** for
+support.softfocus@gmail.com — not the account password. It is what lets
+`alertOnModerationFlag` email you the moment a pod message is reported, which is
+how the 24-hour obligation in App Store Review Guideline 1.2 gets met while you
+are asleep. Without it, reports still land in `moderationFlags`, but nothing
+tells you.
+
+**Getting one is a two-step dance, and the first step is not optional.** Google
+hides app passwords until 2-Step Verification is on, and the page says only
+*"the setting you are looking for is not available for your account"* rather
+than explaining why:
+
+1. [myaccount.google.com/signinoptions/twosv](https://myaccount.google.com/signinoptions/twosv)
+   — turn on 2SV with a **phone number or authenticator app**. Set up with
+   *only* a passkey or a security key and app passwords stay hidden.
+2. [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   — generate one, then paste it into the `secrets:set` above.
+
+Google withholds app passwords from some accounts even with 2SV on. If yours
+is one of them, switch the alert to a Discord/Slack webhook instead — it is
+about twenty lines in `functions/src/reports.ts`, needs no domain and no sender
+verification, and pings a phone faster than an inbox.
+
+⚠️ **This secret gates the whole functions deploy, not just alerts.**
+`reports.ts` declares it with `defineSecret`, and the CLI refuses to deploy any
+function in the codebase while a declared secret is missing from Secret
+Manager. If you are not ready, set a placeholder so you are not blocked:
+
+```bash
+echo "placeholder-replace-me" | firebase functions:secrets:set MODERATION_ALERT_PASSWORD --data-file=-
+```
+
+Deploys then succeed and the alert logs a failure per flag until you replace it.
 
 The webhook secret is a shared string you make up — generate one with
 `openssl rand -hex 32`. Keep a copy; §5 needs it.
@@ -92,8 +165,14 @@ blast radius if it leaks.
 ## 2. Deploy
 
 ```bash
-firebase deploy --only firestore:rules,firestore:indexes,functions
+firebase deploy --only firestore:rules,firestore:indexes,functions,hosting
 ```
+
+Hosting serves `public/` — the privacy policy, terms, account-deletion page and
+support page — at `https://soft-focus-app.web.app`. Both stores require those
+URLs at submission, and `app/legal.ts` points the in-app links at them, so
+deploy hosting **before** you build a binary for review or every legal link in
+the app 404s.
 
 Composite indexes take a few minutes to build. Pod matchmaking returns empty
 until they finish — that is expected, not a bug.
@@ -273,6 +352,82 @@ Gemini has no separate self-harm category — self-harm scores under
 `HARM_CATEGORY_DANGEROUS_CONTENT`, which is why that category drives the support
 path rather than removal.
 
+### User reports
+
+Members can report a message by pressing and holding it. Reports go through the
+`reportPodMessage` callable, not a direct write, and land in the same
+`moderationFlags` collection with `source: 'user_report'`.
+
+| Field | Meaning |
+|---|---|
+| `source` | `user_report` when a member raised it, absent when the classifier did |
+| `reportCount` | Distinct members who have reported this message |
+| `reasons` | Every reason given, de-duplicated |
+| `action` | `auto_hidden` once two people reported it, else `awaiting_review` |
+
+**Two distinct reporters auto-hides the message.** One cannot, because in an
+anonymous room a single malicious member would otherwise be able to silence
+anyone. The threshold is `AUTO_HIDE_AT_REPORTS` in `functions/src/reports.ts`.
+
+Every non-distress flag also emails the support address. Distress flags
+deliberately do **not** email: those are a record that someone was offered
+crisis resources, not a queue item, and nobody should be paged to go and read
+what a person in difficulty wrote about themselves.
+
+Apple expects reported content to be actioned within 24 hours. In practice:
+open the flag, read `text`, then either unhide the message (clear `hidden`) or
+leave it hidden and disable the author's account in Firebase Auth. Set
+`reviewed: true` either way.
+
+---
+
+## 8.5 Backups
+
+Firestore holds every task, mentor conversation and entitlement mirror. There
+is no undo for a bad script or a fat-fingered console delete.
+
+**Easiest route — no install.** Scheduled backups are **not** in the Firebase
+console; they live in the Google Cloud console:
+
+> [console.cloud.google.com/firestore/databases?project=soft-focus-app](https://console.cloud.google.com/firestore/databases?project=soft-focus-app)
+> → the `(default)` row → **Scheduled backups** column → *Edit settings*
+
+That opens the Disaster recovery page: create a daily schedule with 7-day
+retention, and see the resulting backups there later.
+
+If you would rather use the CLI, `gcloud` is the Google Cloud SDK and is a
+separate install from the Firebase CLI — it does **not** come with
+`firebase-tools`. Either install it from
+[cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install),
+or open [shell.cloud.google.com](https://shell.cloud.google.com), which has it
+preinstalled and already authenticated:
+
+```bash
+gcloud config set project soft-focus-app
+gcloud firestore backups schedules create   --database="(default)"   --recurrence=daily   --retention=7d
+```
+
+Check it, and find a backup to restore from:
+
+```bash
+gcloud firestore backups schedules list --database="(default)"
+gcloud firestore backups list --format="table(name,database,state,snapshotTime)"
+```
+
+Restoring goes into a **new** database, never over the live one:
+
+```bash
+gcloud firestore databases restore   --source-backup=projects/soft-focus-app/locations/LOCATION/backups/BACKUP_ID   --destination-database=restore-check
+```
+
+Scheduled backups rather than point-in-time recovery: PITR bills recovery logs
+with no free tier, and at this data size it buys nothing that a daily backup
+does not. Backup storage is charged per GB-month, so at a few hundred MB this
+costs pennies.
+
+Do a restore once, now, while nothing is wrong. A backup you have never
+restored is a guess.
+
 ---
 
 ## 9. Gitignore
@@ -332,6 +487,31 @@ falls back to the unsuffixed one. Then leave the production project **out** of
 
 ---
 
+## 9.55 Migration — dev Pro moved documents (2026-09-15)
+
+`devProEnabled` used to live on `config/flags`, which is readable by **every
+signed-in user** — so the app was advertising that a free-Pro path existed. It
+now lives on `config/devAccess` alongside the uid allowlist: same decision, same
+document, unreadable by any client, and one Firestore read instead of two.
+
+**Dev Pro will refuse until you move it.** In the console, on
+`config/devAccess`, add:
+
+```
+devProEnabled: true   (boolean)
+```
+
+and delete `devProEnabled` from `config/flags`.
+
+There is also a new third guard: the App Check–attested **app id** must be a
+development build (`DEV_APP_IDS` in `functions/src/config.ts`). That comes from
+the signed App Check token rather than anything the client claims, so a shipped
+build is refused even if the flag is left on and a production uid ends up on the
+allowlist. It is the guard `DEV_PROJECT_IDS` was meant to be and cannot be while
+one project serves both variants.
+
+---
+
 ## 9.6 Dev Pro grants
 
 Developing anything behind the paywall means a sandbox purchase per device per
@@ -374,6 +554,44 @@ on and off, not one to leave on.
 
 Grants are stamped `proStore: 'dev_override'`, so they are distinguishable in
 the data and a real RevenueCat event overwrites them cleanly.
+
+---
+
+## 9.7 Security rules — automated tests
+
+`functions/test/rules.test.mjs` runs 40 assertions against the real rules engine
+in the Firestore emulator. It is the difference between believing the rules are
+right and knowing it — it covers self-granted Pro, cross-user reads, rate-limit
+counter tampering, pod spoofing, blocking privacy, and both server-only config
+documents.
+
+```bash
+npm run test:rules
+```
+
+**It needs JDK 21 or newer.** `firebase-tools` dropped support for earlier
+versions, and the error it gives (*"no longer supports Java version before 21"*)
+appears only after the emulator fails to start. `java -version` to check.
+
+If you would rather not install a JDK system-wide, a portable one works and
+leaves nothing behind:
+
+```bash
+curl -L -o jdk21.zip "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse"
+unzip -q jdk21.zip
+export JAVA_HOME="$PWD/jdk-21.0.12.1+1"
+export PATH="$JAVA_HOME/bin:$PATH"
+npm run test:rules
+```
+
+The tests run with App Check **off**, deliberately. They prove what the rules
+guarantee on their own, so the result still holds if Firestore's App Check
+enforcement is ever switched off. Nothing should pass because of a layer above
+it.
+
+The `PERMISSION_DENIED` lines in the output are not failures — they are the
+denials being logged as they happen, which is what most of these tests assert.
+Read the summary line at the end.
 
 ---
 

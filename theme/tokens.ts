@@ -399,6 +399,21 @@ export const duration = {
   draw: 700,
   sheet: 300,
   sheetOut: 220,
+  /**
+   * Switching tabs. This buys two fades, not one: the curtain over the scene
+   * area fades in, the screens swap underneath it, and it fades back out — so
+   * each half gets about 120ms. Shorter and the halves read as a flicker;
+   * much longer and tapping through the bar feels gummy.
+   */
+  tab: 240,
+  /**
+   * The task list reflowing as a filter changes. Asymmetric on purpose: what is
+   * leaving should get out of the way faster than what is arriving settles, or
+   * the two overlap and the list looks briefly crowded with tasks that no
+   * longer match.
+   */
+  list: 220,
+  listOut: 140,
 } as const;
 
 export const ease = {

@@ -9,7 +9,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { db } from './admin';
-import { PROMPT_LIMITS, REMINDER_LIMITS, paths } from './config';
+import { PROMPT_LIMITS, REMINDER_LIMITS, TASK_BREAKDOWN_MAX_STEPS, paths } from './config';
 
 export const TASK_TOOL_DECLARATIONS = [
   {
@@ -27,6 +27,31 @@ export const TASK_TOOL_DECLARATIONS = [
         dueDate: { type: 'string', description: 'Optional ISO-8601 due date.' },
       },
       required: ['name', 'priority', 'energy', 'time', 'type'],
+    },
+  },
+  {
+    /**
+     * Breaking a task down in conversation.
+     *
+     * The dedicated button on the task is the discoverable path; this exists so
+     * "break down my lab report" works when someone says it to the mentor
+     * instead. Both end up writing the same `subtasks` array.
+     */
+    name: 'breakdown_task',
+    description:
+      "Break one of the user's tasks into concrete steps and save them to it. Call list_tasks first so you break down the right one. Only use this when the task is genuinely too big to start, not for every task mentioned.",
+    parameters: {
+      type: 'object',
+      properties: {
+        taskName: { type: 'string', description: 'The task to break down, as the user refers to it.' },
+        steps: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Between 3 and 8 steps. Each one a physical action they could start right now, imperative, under ten words. The first must be almost trivially small.',
+        },
+      },
+      required: ['taskName', 'steps'],
     },
   },
   {
@@ -98,6 +123,8 @@ export interface TaskRecord {
   type: string;
   completed: boolean;
   dueDate?: string | null;
+  /** The checklist, clamped. Empty when the task has not been broken down. */
+  subtasks?: { name: string; done: boolean }[];
 }
 
 /** What the client is told happened, so it can refresh and show a receipt. */
@@ -186,6 +213,23 @@ export async function readTasks(uid: string): Promise<TaskRecord[]> {
       type: String(data.type ?? 'General').slice(0, PROMPT_LIMITS.taskType),
       completed: data.completed === true,
       dueDate: data.dueDate ? String(data.dueDate).slice(0, 40) : null,
+      /**
+       * The clamp that actually bounds this cost vector.
+       *
+       * `firestore.rules` cannot iterate a list, so it limits how many subtasks
+       * a task may have but not how long each label is. Without this, twelve
+       * oversized labels would ride into the system prompt on every single
+       * mentor turn for as long as that task existed.
+       */
+      subtasks: Array.isArray(data.subtasks)
+        ? data.subtasks
+            .slice(0, TASK_BREAKDOWN_MAX_STEPS)
+            .map((s: any) => ({
+              name: String(s?.name ?? '').slice(0, PROMPT_LIMITS.subtaskName),
+              done: s?.done === true,
+            }))
+            .filter((s: { name: string }) => s.name.length > 0)
+        : [],
     };
   });
 }
@@ -370,6 +414,48 @@ export async function executeTaskTool(
             tool: name,
             ok: true,
             summary: `${completed ? 'Completed' : 'Reopened'} "${target.name}"`,
+            taskId: target.id,
+            taskName: target.name,
+          },
+        };
+      }
+
+      case 'breakdown_task': {
+        const tasks = await readTasks(uid);
+        const target = findTask(tasks, String(args.taskName ?? ''));
+        if (!target) {
+          return {
+            response: { ok: false, error: 'No matching task.', available: tasks.map((t) => t.name) },
+            effect: { tool: name, ok: false, summary: `No task matching "${args.taskName}"` },
+          };
+        }
+
+        // The model supplies the steps, so everything about them is untrusted:
+        // count, length, and whether they are strings at all.
+        const steps = (Array.isArray(args.steps) ? args.steps : [])
+          .map((s) => String(s ?? '').trim().slice(0, PROMPT_LIMITS.subtaskName))
+          .filter((s) => s.length > 0)
+          .slice(0, TASK_BREAKDOWN_MAX_STEPS);
+
+        if (steps.length === 0) {
+          return {
+            response: { ok: false, error: 'No usable steps were provided.' },
+            effect: { tool: name, ok: false, summary: 'No steps to save' },
+          };
+        }
+
+        const now = Date.now();
+        await db.doc(paths.userTask(uid, target.id)).update({
+          subtasks: steps.map((stepName, i) => ({ id: `${now}-${i}`, name: stepName, done: false })),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return {
+          response: { ok: true, task: target.name, steps },
+          effect: {
+            tool: name,
+            ok: true,
+            summary: `Broke "${target.name}" into ${steps.length} steps`,
             taskId: target.id,
             taskName: target.name,
           },

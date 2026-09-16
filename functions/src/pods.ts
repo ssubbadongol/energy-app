@@ -79,6 +79,38 @@ async function findCurrentPod(uid: string): Promise<{ podId: string; alias: stri
   return null;
 }
 
+/**
+ * Everyone this user has blocked.
+ *
+ * Blocking is written by the client into its own private subcollection, so
+ * this is the server's only view of it. Kept small deliberately: the cap is a
+ * bound on the work `hasBlockedMember` does per candidate room, and someone
+ * who has blocked 200 people has a problem that matchmaking cannot solve.
+ */
+async function readBlockedUids(uid: string): Promise<Set<string>> {
+  try {
+    const snap = await db.collection(paths.userBlocks(uid)).select().limit(200).get();
+    return new Set(snap.docs.map((d) => d.id));
+  } catch (err) {
+    // Fail open: never stop someone joining a room because we could not read
+    // a preference. The client filters blocked messages regardless, so the
+    // worst case is that they share a room with someone they cannot see.
+    logger.warn('Could not read block list', { uid, err });
+    return new Set();
+  }
+}
+
+/** True when any active member of `podId` is in `blocked`. */
+async function hasBlockedMember(podId: string, blocked: Set<string>): Promise<boolean> {
+  if (blocked.size === 0) return false;
+  const members = await db
+    .collection(paths.podMembers(podId))
+    .where('active', '==', true)
+    .limit(POD_MAX_MEMBERS)
+    .get();
+  return members.docs.some((m) => blocked.has((m.data().uid as string) ?? m.id));
+}
+
 function pickAlias(taken: string[]): string {
   const free = POD_ALIASES.find((a) => !taken.includes(a));
   // With a five-person ceiling and ten aliases this cannot realistically run
@@ -134,9 +166,24 @@ export const joinPod = onCall(
       .limit(10)
       .get();
 
+    /**
+     * Rooms containing someone this user blocked are skipped entirely.
+     *
+     * Blocking hides messages on the client, but being repeatedly matched into
+     * a room with someone you blocked is its own kind of harm — and Apple 1.2
+     * asks for the ability to block abusive users, not merely to mute them.
+     * Read once, outside the loop, and only when there is anything to check.
+     */
+    const blocked = await readBlockedUids(uid);
+
     for (const candidate of candidates.docs) {
       const data = candidate.data();
       if ((data.expiresAt as Timestamp)?.toMillis() <= now.toMillis()) continue;
+
+      if (await hasBlockedMember(candidate.id, blocked)) {
+        logger.info('Skipping pod containing a blocked member', { uid, podId: candidate.id });
+        continue;
+      }
 
       try {
         const joined = await db.runTransaction(async (tx) => {

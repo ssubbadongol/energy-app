@@ -4,6 +4,13 @@
  * The budget alert handler flips these; every paid code path checks them and
  * degrades instead of erroring. Cached per instance so a busy pod does not
  * turn one Firestore read into hundreds.
+ *
+ * `config/flags` is **readable by every signed-in user** — which is everyone
+ * who installs the app, since auth is anonymous and automatic. Only put things
+ * here that the client legitimately needs in order to explain itself. Budget
+ * figures live on `config/budgetState` and the dev-grant switch lives on
+ * `config/devAccess`, both server-only, and both were moved off this document
+ * for exactly that reason.
  */
 import { logger } from 'firebase-functions/v2';
 import { db } from './admin';
@@ -18,14 +25,6 @@ export interface Flags {
   podsEnabled: boolean;
   /** Human-readable note shown in the client when something is off. */
   reason: string | null;
-  /**
-   * Whether `grantDevPro` may hand out a Pro claim without a purchase.
-   *
-   * The only flag here that defaults to *false*. Every other flag fails open
-   * because a Firestore blip should not take the product down; this one fails
-   * closed, because the cost of it being wrong is giving the subscription away.
-   */
-  devProEnabled: boolean;
 }
 
 export const DEFAULT_FLAGS: Flags = {
@@ -33,7 +32,6 @@ export const DEFAULT_FLAGS: Flags = {
   podModerationEnabled: true,
   podsEnabled: true,
   reason: null,
-  devProEnabled: false,
 };
 
 let cached: { at: number; value: Flags } | null = null;
@@ -50,8 +48,6 @@ export async function getFlags(): Promise<Flags> {
       podModerationEnabled: data.podModerationEnabled !== false,
       podsEnabled: data.podsEnabled !== false,
       reason: data.reason ?? null,
-      // Opt-in, unlike the rest: absent means off.
-      devProEnabled: data.devProEnabled === true,
     };
     cached = { at: Date.now(), value };
     return value;

@@ -72,6 +72,9 @@ export function useMotion() {
         draw: 0,
         sheet: flat,
         sheetOut: flat,
+        tab: flat,
+        list: flat,
+        listOut: flat,
       },
       spring: {
         press: { duration: flat, dampingRatio: 1 },

@@ -5,6 +5,23 @@ import { db, ensureAuth } from './firebase';
 type EnergyLevel = 'high' | 'medium' | 'low';
 type Priority = 'high' | 'medium' | 'low';
 
+/**
+ * One step inside a task.
+ *
+ * Deliberately flat and dumb: an id, a label, a tick. No nesting, no due
+ * dates, no reminders. The whole point is to turn "finish the assignment" into
+ * something a person can start, and a subtask that needs its own planning has
+ * defeated that.
+ */
+export interface Subtask {
+  id: string;
+  name: string;
+  done: boolean;
+}
+
+/** Hard ceiling, mirrored in `firestore.rules` and enforced server-side. */
+export const MAX_SUBTASKS = 12;
+
 export interface Task {
   id: number;
   name: string;
@@ -14,6 +31,10 @@ export interface Task {
   type: string;
   completed: boolean;
   dueDate?: string;
+  /** "HH:MM", 24h. The clock time the task is meant to happen at. */
+  dueTime?: string;
+  /** The checklist, when the task has been broken down. Absent means none. */
+  subtasks?: Subtask[];
 }
 
 const TASKS_STORAGE_KEY = '@energy_tasks';
@@ -58,6 +79,8 @@ function toRemote(task: Task) {
     type: task.type,
     completed: task.completed,
     dueDate: task.dueDate ?? null,
+    dueTime: task.dueTime ?? null,
+    subtasks: task.subtasks ?? [],
     updatedAt: serverTimestamp(),
   };
 }
@@ -67,7 +90,7 @@ function fromRemote(id: string, data: any): Task | null {
   // Ignore anything that is not one of our numeric ids rather than minting a
   // NaN-keyed task that no screen could ever match.
   if (!Number.isFinite(numericId)) return null;
-  return {
+  const task: Task = {
     id: numericId,
     name: data.name ?? '',
     priority: (data.priority ?? 'medium') as Priority,
@@ -77,6 +100,30 @@ function fromRemote(id: string, data: any): Task | null {
     completed: data.completed === true,
     dueDate: data.dueDate ?? undefined,
   };
+
+  // Fields added after the first documents were written are only set when the
+  // document actually carries the key. A document that has never heard of
+  // `dueTime` must not be able to erase one — it has no opinion, and defaulting
+  // it to `undefined` here would turn "not stored yet" into "cleared" on the
+  // next sync. An explicit null *is* a clear, and does come through.
+  if ('dueTime' in data) task.dueTime = data.dueTime ?? undefined;
+
+  // Same reasoning as `dueTime`, plus a shape check: this array is written by
+  // the client and by a Cloud Function, and a malformed row must not be able
+  // to crash every screen that renders a task.
+  if (Array.isArray(data.subtasks)) {
+    task.subtasks = data.subtasks
+      .filter((s: unknown): s is Record<string, unknown> => !!s && typeof s === 'object')
+      .slice(0, MAX_SUBTASKS)
+      .map((s: Record<string, unknown>, i: number) => ({
+        id: String(s.id ?? `${numericId}-${i}`),
+        name: String(s.name ?? ''),
+        done: s.done === true,
+      }))
+      .filter((s: Subtask) => s.name.length > 0);
+  }
+
+  return task;
 }
 
 /**
@@ -144,7 +191,17 @@ export const syncTasksFromFirestore = async (): Promise<Task[]> => {
       await batch.commit();
     }
 
-    const merged = [...remote.values(), ...localOnly].sort((a, b) => a.id - b.id);
+    // Remote wins field by field, not document by document. Replacing the whole
+    // local task would drop anything the server's copy predates — which is how a
+    // due time set on an older task disappeared on the next cold start.
+    const localById = new Map(sharedTasks.map((task) => [task.id, task]));
+    const merged = [
+      ...[...remote.values()].map((r) => {
+        const local = localById.get(r.id);
+        return local ? { ...local, ...r } : r;
+      }),
+      ...localOnly,
+    ].sort((a, b) => a.id - b.id);
     const changed = JSON.stringify(merged) !== JSON.stringify(sharedTasks);
 
     sharedTasks = merged;
@@ -226,9 +283,60 @@ export const deleteTask = async (id: number) => {
   void mirrorDelete(id);
 };
 
+/**
+ * Ticking a task with steps ticks all of them, and un-ticking clears them.
+ *
+ * Forgiving on purpose. The alternative — making someone tick five boxes
+ * before the task itself will close — punishes exactly the person this feature
+ * is for. You can always just say "done" and move on.
+ */
 export const toggleTaskCompletion = async (id: number) => {
   const task = sharedTasks.find((t) => t.id === id);
-  if (task) {
-    await updateTask(id, { completed: !task.completed });
+  if (!task) return;
+
+  const completed = !task.completed;
+  const updates: Partial<Task> = { completed };
+  if (task.subtasks?.length) {
+    updates.subtasks = task.subtasks.map((s) => ({ ...s, done: completed }));
   }
+  await updateTask(id, updates);
+};
+
+/* ------------------------------------------------------------------ *
+ * Subtasks
+ * ------------------------------------------------------------------ */
+
+/** Ids only need to be unique within their task, so this is enough. */
+export const makeSubtasks = (names: string[]): Subtask[] =>
+  names
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0)
+    .slice(0, MAX_SUBTASKS)
+    .map((name, i) => ({ id: `${Date.now()}-${i}`, name, done: false }));
+
+export const setSubtasks = async (taskId: number, subtasks: Subtask[]) => {
+  await updateTask(taskId, { subtasks: subtasks.slice(0, MAX_SUBTASKS) });
+};
+
+/**
+ * Tick one step, and let the parent follow.
+ *
+ * Finishing the last step completes the task — otherwise you tick the final
+ * box and the thing still sits there looking unfinished, which is a small
+ * betrayal. Un-ticking one re-opens it for the same reason: the task plainly
+ * is not done any more.
+ */
+export const toggleSubtask = async (taskId: number, subtaskId: string) => {
+  const task = sharedTasks.find((t) => t.id === taskId);
+  if (!task?.subtasks?.length) return;
+
+  const subtasks = task.subtasks.map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+  await updateTask(taskId, { subtasks, completed: subtasks.every((s) => s.done) });
+};
+
+/** `2/5`, for the card. */
+export const subtaskProgress = (task: Task): { done: number; total: number } | null => {
+  const total = task.subtasks?.length ?? 0;
+  if (total === 0) return null;
+  return { done: task.subtasks!.filter((s) => s.done).length, total };
 };

@@ -39,6 +39,24 @@ service cloud.firestore {
      * -> APIs, so a request without a verified App Check token never reaches
      * these rules. Keep that enforcement on; it is now the only thing standing
      * between the database and an unattested client.
+     *
+     * WHAT THIS COSTS, stated plainly, because the answer is reassuring and
+     * the temptation it guards against is not:
+     *
+     * If App Check enforcement is ever switched off — and the tempting moment
+     * is a launch where the production app was never registered and is being
+     * denied — these rules keep working and an unattested client still gets
+     * only what any anonymous user gets: its own documents. It cannot read
+     * another user's anything, cannot reach a pod without a server-issued
+     * membership, and cannot grant itself Pro. The exposure is one unattested
+     * identity per token minted, operating on its own empty account.
+     *
+     * So the correct emergency response is to register the app, not to
+     * unenforce. But if someone does unenforce at 2am, the damage is bounded
+     * by the rules below rather than by luck — and every genuinely sensitive
+     * write path (entitlements, pod membership, moderation, deletion) is a
+     * callable where App Check is enforced by the platform, independently of
+     * this console setting.
      */
     function verifiedApp() {
       return true;
@@ -123,8 +141,28 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly([
                'name', 'priority', 'energy', 'time', 'type', 'completed',
-               'dueDate', 'createdAt', 'updatedAt', 'completedAt', 'source'
+               'dueDate', 'dueTime', 'createdAt', 'updatedAt', 'completedAt',
+               'source', 'subtasks'
              ])
+        /**
+         * Subtasks: the checklist inside a task.
+         *
+         * Only the COUNT is bounded here, and that is a real limitation rather
+         * than an oversight — Firestore rules cannot iterate a list, so there
+         * is no way to check the length of each subtask's name. A modified
+         * client could write twelve very long ones.
+         *
+         * That matters because tasks are replayed into the mentor's prompt on
+         * every turn, so it is a standing cost multiplier, not untidy data.
+         * The defence that actually holds is server-side: `readTasks` in
+         * `functions/src/mentorTools.ts` clamps every subtask name before it
+         * can reach a prompt, exactly as it already does for `name` and `type`.
+         *
+         * Twelve is also a product ceiling. A twenty-step checklist is its own
+         * kind of overwhelm, which is the thing this feature exists to reduce.
+         */
+        && (!('subtasks' in d)
+              || (d.subtasks is list && d.subtasks.size() <= 12))
         && shortString(d.name, 200)
         && d.name.size() > 0
         && d.priority in ['high', 'medium', 'low']
@@ -187,6 +225,34 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['acknowledgedAt', 'dismissed']);
         allow create, delete: if false;
+      }
+
+      /**
+       * Blocked members.
+       *
+       * Document id is the blocked uid, which gives free de-duplication and
+       * lets `joinPod` read the whole list as a set of ids without an index.
+       *
+       * Private to its owner in both directions: a member must not be able to
+       * discover that they have been blocked, because in an anonymous room
+       * that is itself a channel back to the person who blocked them.
+       *
+       * Deliberately client-writable, unlike reports. Blocking is a statement
+       * about what *you* want to see, not a judgement about the message, so it
+       * needs no server adjudication — and it must keep working instantly even
+       * when a callable would fail. Unblocking is allowed for the same reason.
+       *
+       * The body is pinned to a timestamp so this cannot become a private
+       * key-value store attached to a user document.
+       */
+      match /blocks/{blockedUid} {
+        allow read: if isSelf(uid);
+        allow create: if isSelf(uid)
+          && blockedUid != uid
+          && request.resource.data.keys().hasOnly(['createdAt'])
+          && request.resource.data.createdAt == request.time;
+        allow delete: if isSelf(uid);
+        allow update: if false;
       }
     }
 
@@ -269,6 +335,25 @@ service cloud.firestore {
     /**
      * Kill switches. Readable so the client can show an honest notice instead
      * of a generic error; writable only by the budget function.
+     *
+     * ⚠️ Everything on this document is PUBLISHED. Auth is anonymous and
+     * automatic, so "signed in" means "installed the app" — there is no
+     * meaningful population excluded by this rule.
+     *
+     * It used to carry the budget handler's telemetry (`lastBudgetCost`,
+     * `lastBudgetAmount`, `lastBudgetRatio`), which meant every user could read
+     * the project's actual monthly Cloud spend and watch how close it was to
+     * tripping the kill switch — a live progress bar for anyone wanting to
+     * take the mentor down for every subscriber. It also carried
+     * `devProEnabled`, which advertised that a free-Pro path existed.
+     *
+     * Those now live on `config/budgetState` and `config/devAccess`, neither of
+     * which is matched by any rule here and both of which are therefore denied
+     * by the catch-all at the bottom.
+     *
+     * Do not widen this to `match /config/{doc}`. The narrowness is the
+     * control: a new config document is private until someone deliberately
+     * names it here and thinks about who can read it.
      */
     match /config/flags {
       allow read: if signedIn();

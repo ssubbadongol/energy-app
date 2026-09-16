@@ -1,0 +1,152 @@
+/* Soft Focus legal pages — one stylesheet, shared by all four.
+   Deliberately plain: these are documents, and a reviewer or a regulator
+   should be able to read them on any device without anything getting in
+   the way. Same palette as the app so they don't feel like a different
+   company's website. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f7faf7;
+  --surface: #ffffff;
+  --fg: #37514a;
+  --fg-body: #3f5b50;
+  --fg-muted: #7d9a8d;
+  --rule: #dfeae3;
+  --primary: #5d8a75;
+  --warn-bg: #f4ece1;
+  --warn-rule: #e0cdb4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c2621;
+    --surface: #232f29;
+    --fg: #e4efe8;
+    --fg-body: #cfdfd6;
+    --fg-muted: #9ab3a6;
+    --rule: #35463d;
+    --primary: #8fbfa4;
+    --warn-bg: #2e2a22;
+    --warn-rule: #4a4032;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 20px 80px;
+  background: var(--bg);
+  color: var(--fg-body);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+}
+
+header {
+  padding: 48px 0 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 32px;
+}
+
+.wordmark {
+  display: inline-block;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+h1 {
+  font-size: clamp(1.7rem, 5vw, 2.3rem);
+  line-height: 1.2;
+  color: var(--fg);
+  margin: 0 0 10px;
+  letter-spacing: -0.015em;
+}
+
+h2 {
+  font-size: 1.16rem;
+  color: var(--fg);
+  margin: 40px 0 12px;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: 1rem;
+  color: var(--fg);
+  margin: 26px 0 8px;
+}
+
+.updated {
+  color: var(--fg-muted);
+  font-size: 14px;
+  margin: 0 0 28px;
+}
+
+p, li { margin: 0 0 14px; }
+ul, ol { padding-left: 22px; }
+li { margin-bottom: 8px; }
+
+a { color: var(--primary); }
+
+strong { color: var(--fg); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0 24px;
+  font-size: 15px;
+  display: block;
+  overflow-x: auto;
+}
+
+th, td {
+  text-align: left;
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+th {
+  color: var(--fg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin: 24px 0;
+}
+
+.card p:last-child, .card ul:last-child, .card ol:last-child { margin-bottom: 0; }
+
+.notice {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-rule);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin: 24px 0;
+}
+
+.notice p:last-child { margin-bottom: 0; }
+
+footer {
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+
+footer a { margin-right: 18px; }

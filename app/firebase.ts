@@ -25,6 +25,7 @@ import { getAuth, onAuthStateChanged, signInAnonymously } from '@react-native-fi
 import { getFirestore } from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { initAppCheckSync } from './appCheck';
+import { devLog } from './devLog';
 
 export const app = getApp();
 
@@ -134,9 +135,14 @@ export async function readProClaim(): Promise<boolean> {
  * Firestore reports every rule failure as the same opaque "Missing or
  * insufficient permissions", with no indication of which condition failed, so
  * printing what the client is presenting is the cheapest way to attribute one.
+ *
+ * Development only, via `devLog`. This line carries the project id, the app id
+ * and the user's uid, and it ran on every launch — in a shipped build that is
+ * three pieces of account-identifying infrastructure written to the device log
+ * for any process with log access to read.
  */
 export function logFirebaseIdentity(): void {
-  console.log(
+  devLog(
     '[firebase] identity |',
     `project=${app.options.projectId}`,
     `| appId=${app.options.appId}`,

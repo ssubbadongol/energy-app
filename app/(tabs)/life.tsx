@@ -1,10 +1,11 @@
 import { useFocusEffect } from 'expo-router';
-import { Check, Minus, Pencil, Plus } from 'lucide-react-native';
+import { Bell, BellOff, Check, Minus, Pencil, Plus } from 'lucide-react-native';
 import React, { useCallback, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MascotPerch } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
+import { useCelebrate } from '@/components/sage/Celebration';
 import {
   addLifeTask,
   deleteLifeTask,
@@ -14,8 +15,10 @@ import {
   type TimeOfDay,
   toggleLifeTaskCompleted,
   toggleLifeTaskEnabled,
+  toggleLifeTaskRemind,
   updateLifeTask,
 } from '../lifeTaskStorage';
+import { syncLifeReminders } from '../lifeReminderService';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 const SECTIONS: { key: TimeOfDay; title: string; hours: string }[] = [
@@ -42,6 +45,7 @@ const windowLabel = (a: number, b: number) => {
 const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as TimeOfDay, start: 9, end: 11, reps: 1 };
 
 export default function LifeScreen() {
+  const celebrate = useCelebrate();
   const [items, setItems] = useState<LifeTask[]>([]);
   const [setup, setSetup] = useState(false);
   const [ready, setReady] = useState(false);
@@ -51,6 +55,18 @@ export default function LifeScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const refresh = useCallback(() => setItems([...getLifeTasks()]), []);
+
+  /**
+   * For the changes that move the schedule — turning an item on or off, its
+   * reminders, its window, adding or removing it. Ticking something off does
+   * not go through here: what is scheduled for tomorrow is the same either way,
+   * and rebuilding the whole schedule on every checkbox tap is work for nothing.
+   */
+  const refreshAndReschedule = useCallback(() => {
+    const next = [...getLifeTasks()];
+    setItems(next);
+    void syncLifeReminders(next);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -72,20 +88,32 @@ export default function LifeScreen() {
   const lifeDone = enabled.filter((i) => i.completed).length;
   const lifePct = enabled.length ? Math.round((lifeDone / enabled.length) * 100) : 0;
 
-  const toggleOn = async (id: string) => { await toggleLifeTaskEnabled(id); refresh(); };
-  const tap = async (id: string) => { await toggleLifeTaskCompleted(id); refresh(); };
+  const toggleOn = async (id: string) => { await toggleLifeTaskEnabled(id); refreshAndReschedule(); };
+  const toggleRemind = async (id: string) => { await toggleLifeTaskRemind(id); refreshAndReschedule(); };
+  const tap = async (id: string, e?: GestureResponderEvent) => {
+    const item = items.find((i) => i.id === id);
+    if (item && e) {
+      const reps = item.repeats && item.repeats > 1 ? item.repeats : 1;
+      // A four-times-a-day item earns the confetti on the fourth tap, not on
+      // each one — otherwise the reward stops meaning "finished".
+      const finishing = reps > 1 ? item.completedCount + 1 >= reps : !item.completed;
+      if (finishing) celebrate(e.nativeEvent.pageX, e.nativeEvent.pageY);
+    }
+    await toggleLifeTaskCompleted(id);
+    refresh();
+  };
 
   const editItem = (i: LifeTask) => {
     setEditingId(i.id);
     setWindowTouched(false);
-    setDraft({ name: i.name, emoji: i.emoji, sec: i.timeOfDay, start: 9, end: 11, reps: i.repeats && i.repeats > 1 ? i.repeats : 1 });
+    setDraft({ name: i.name, emoji: i.emoji, sec: i.timeOfDay, start: i.startHour, end: i.endHour, reps: i.repeats && i.repeats > 1 ? i.repeats : 1 });
   };
   const cancelEdit = () => { setEditingId(null); setWindowTouched(false); setDraft({ ...EMPTY_DRAFT }); };
   const removeItem = async () => {
     if (!editingId) return;
     await deleteLifeTask(editingId);
     cancelEdit();
-    refresh();
+    refreshAndReschedule();
   };
   const saveItem = async () => {
     if (!draft.name.trim()) return;
@@ -95,7 +123,13 @@ export default function LifeScreen() {
         name: draft.name.trim(),
         emoji: draft.emoji,
         timeOfDay: draft.sec,
+        // The label is left alone unless the window was actually touched, so a
+        // stored "6–12 PM" is not rewritten into an equivalent-but-different
+        // string just for opening the editor. The hours always follow the draft,
+        // which `editItem` seeds from the item itself.
         timeWindow: windowTouched || !existing ? windowLabel(draft.start, draft.end) : existing.timeWindow,
+        startHour: draft.start,
+        endHour: draft.end,
         repeats: draft.reps > 1 ? draft.reps : undefined,
       });
       cancelEdit();
@@ -104,6 +138,9 @@ export default function LifeScreen() {
         emoji: draft.emoji,
         name: draft.name.trim(),
         timeWindow: windowLabel(draft.start, draft.end),
+        startHour: draft.start,
+        endHour: draft.end,
+        remind: true,
         timeOfDay: draft.sec,
         enabled: true,
         isDefault: false,
@@ -111,7 +148,7 @@ export default function LifeScreen() {
       });
       setDraft({ ...EMPTY_DRAFT, sec: draft.sec });
     }
-    refresh();
+    refreshAndReschedule();
   };
 
   const setStart = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v + 1, d.end) })); };
@@ -142,9 +179,23 @@ export default function LifeScreen() {
                     <Text style={styles.setupName}>{i.name}</Text>
                     <Text style={styles.setupWindow}>{i.repeats && i.repeats > 1 ? `${i.timeWindow} · ${i.repeats}× a day` : i.timeWindow}</Text>
                   </View>
+                  <View style={styles.rowActions}>
+                  <Pressable
+                    onPress={() => toggleRemind(i.id)}
+                    style={[styles.editBtn, i.remind && i.enabled && { backgroundColor: sage.fillGreen }]}
+                    hitSlop={4}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: i.remind }}
+                    accessibilityLabel={`Reminders for ${i.name}`}
+                  >
+                    {i.remind
+                      ? <Bell size={13} color={i.enabled ? sage.primaryDeep : sage.fgFaint} strokeWidth={2} />
+                      : <BellOff size={13} color={sage.fgFaint} strokeWidth={2} />}
+                  </Pressable>
                   <Pressable onPress={() => editItem(i)} style={[styles.editBtn, editingId === i.id && { backgroundColor: sage.fillGreen }]} hitSlop={4}>
                     <Pencil size={13} color={editingId === i.id ? sage.primaryDeep : sage.fgFaint} strokeWidth={2} />
                   </Pressable>
+                  </View>
                   <Pressable onPress={() => toggleOn(i.id)} style={[styles.track, { backgroundColor: i.enabled ? sage.leaf : sage.track, alignItems: i.enabled ? 'flex-end' : 'flex-start' }]}>
                     <View style={styles.knob} />
                   </Pressable>
@@ -256,14 +307,17 @@ export default function LifeScreen() {
                       const reps = i.repeats && i.repeats > 1 ? i.repeats : 1;
                       const full = i.completed;
                       return (
-                        <Pressable key={i.id} onPress={() => tap(i.id)} style={[styles.dailyRow, idx === secItems.length - 1 && { borderBottomWidth: 0 }]}>
+                        <Pressable key={i.id} onPress={(e) => tap(i.id, e)} style={[styles.dailyRow, idx === secItems.length - 1 && { borderBottomWidth: 0 }]}>
                           <View style={[styles.checkCircle, { borderColor: full ? sage.primary : sage.ruleStrong, backgroundColor: full ? sage.primary : sage.surface }]}>
                             {full && <Check size={12} color={sage.onPrimary} strokeWidth={3} />}
                           </View>
                           <Text style={styles.emoji}>{i.emoji}</Text>
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[styles.dailyName, full && { color: sage.fgFaint, textDecorationLine: 'line-through' }]}>{i.name}</Text>
-                            <Text style={styles.setupWindow}>{i.timeWindow}</Text>
+                            <View style={styles.windowRow}>
+                              <Text style={styles.setupWindow}>{i.timeWindow}</Text>
+                              {i.remind && <Bell size={10} color={sage.fgFaint} strokeWidth={2.5} />}
+                            </View>
                           </View>
                           <View style={{ flexDirection: 'row', gap: 5, alignItems: 'center' }}>
                             {Array.from({ length: reps }).map((_, n) => (
@@ -299,6 +353,11 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: gutter, paddingTop: 4, paddingBottom: 32 },
 
   card: { backgroundColor: sage.surface, borderRadius: radius.cardLg, padding: 18, ...shadow.card, ...curve, marginBottom: 14 },
+  windowRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // The bell and the pencil are one cluster, so the row's 13px gap falls either
+  // side of the pair rather than between them — which is what keeps the name
+  // column readable once a third control is in the row.
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 8, paddingBottom: 16, gap: 10 },
   editPill: { borderRadius: 13, paddingVertical: 9, paddingHorizontal: 14, backgroundColor: sage.surface, ...shadow.soft, ...curve },

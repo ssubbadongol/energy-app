@@ -89,6 +89,20 @@ export const budgetKillSwitch = onMessagePublished(
       return;
     }
 
+    /**
+     * Two documents, and the split is a security boundary rather than tidiness.
+     *
+     * `config/flags` is readable by any signed-in user — which is everyone who
+     * installs the app, because auth is anonymous and automatic. So it carries
+     * only what the client legitimately needs to render an honest notice.
+     *
+     * The spend figures go somewhere no client can reach. They are
+     * commercially confidential, and publishing the ratio also hands anyone a
+     * live progress bar towards the kill switch: drive spend to 90% and the
+     * mentor goes off for every paying subscriber. Making that unmeasurable
+     * does not make it impossible, but it removes the feedback loop that turns
+     * a theoretical nuisance into something somebody finishes.
+     */
     await db.doc(paths.configFlags).set(
       {
         mentorEnabled,
@@ -96,12 +110,21 @@ export const budgetKillSwitch = onMessagePublished(
         // Pods themselves are never closed by a budget event.
         podsEnabled: before.podsEnabled !== false,
         reason,
+        source: 'budget_alert',
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    await db.doc(paths.configBudgetState).set(
+      {
         lastBudgetRatio: ratio,
         lastBudgetName: budgetDisplayName ?? null,
         lastBudgetCost: costAmount ?? null,
         lastBudgetAmount: budgetAmount ?? null,
         lastBudgetCurrency: currencyCode ?? null,
-        source: 'budget_alert',
+        mentorEnabled,
+        podModerationEnabled,
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },

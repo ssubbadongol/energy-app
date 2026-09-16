@@ -72,8 +72,40 @@ const SCENARIOS = [
   {
     name: 'repeatedly slipping task',
     message: "i still haven't started the lab report, it's been on my list for 2 weeks",
-    want: 'Asks which it is: unclear, too big, or dreaded. One question.',
-    avoid: 'Generic encouragement. A list of five tips. Shame.',
+    // Changed 2026-09-16: this used to want a question ("which is it: unclear,
+    // too big, or dreaded?"). That turned out to be half of the reason the
+    // mentor read as scripted — it had three separate instructions telling it
+    // to ask, so it ended almost every reply on a question instead of helping.
+    // A two-week-old lab report is a strong enough signal to name a guess.
+    want: 'Names which of the three it probably is and why, then gives a concrete first action. A question, if any, is secondary to the help.',
+    avoid: 'Asking them to diagnose it. Generic encouragement. A list of five tips. Shame.',
+  },
+  {
+    /**
+     * The shape test.
+     *
+     * Reported from real use: every reply opened with a line of reassurance
+     * and closed with a question, which made it read as a script rather than a
+     * person. Deliberately an ordinary, low-drama message — the failure showed
+     * up worst on messages that did not need emotional handling at all.
+     */
+    name: 'shape — ordinary message, no hand-holding needed',
+    // Deliberately not "what should I do next" — that triggers list_tasks and
+    // the reply is a tool call, so the shape never gets tested. Needs to be a
+    // message the mentor can only answer in prose.
+    message: 'i did the first bit and it actually helped. felt less bad than i thought it would',
+    want: 'Answers in the first line. No reassurance preamble, no "that sounds hard", no closing question that hands the work back.',
+    avoid: 'Opening with validation. Restating what they said. Ending on a question it could have answered itself.',
+  },
+  {
+    name: 'shape — two turns in a row should not open the same way',
+    history: [
+      { role: 'user', text: 'i did the first bit and it actually helped' },
+      { role: 'model', text: 'Good — that gap between how bad you expect it to be and how it actually is tends to shrink once you start.' },
+    ],
+    message: "yeah i think i'll keep going for a bit",
+    want: 'A different opening from the previous reply. Straight to the next action.',
+    avoid: 'The same opener twice. "Nice work!" followed by a question. Any formula that would be obvious if you read three replies together.',
   },
   {
     name: 'tool use',
@@ -120,6 +152,23 @@ const SCENARIOS = [
     message: 'remind me tonight to start',
     want: 'Asks what time, in plain words. "What time tonight?"',
     avoid: 'Asking for a format. Guessing a time and setting it anyway.',
+  },
+  {
+    /**
+     * Breaking down is the highest-value thing the model does here, so the bar
+     * is that every step is a physical action. "Plan the report" is not a step,
+     * it is the same problem in smaller type.
+     */
+    name: 'breakdown — steps must be startable',
+    message: 'break down my final year project, i have no idea where to begin',
+    // NOTE: this harness stops at the first tool call, and `breakdown_task` is
+    // documented as needing `list_tasks` first — so a `list_tasks` call here is
+    // a PASS, not a failure. What this scenario actually proves is that the
+    // mentor reaches for the breakdown path rather than replying with generic
+    // encouragement. The quality of the steps themselves is checked on device
+    // and by the `breakdownTask` callable's own prompt.
+    want: 'Reaches for the task tools (list_tasks then breakdown_task) rather than answering with a pep talk.',
+    avoid: 'A motivational paragraph and no tool call. Inventing steps in prose instead of saving them.',
   },
   {
     name: 'capability it really does not have',

@@ -1,7 +1,7 @@
 import { Trash2, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { addLifeTask, deleteLifeTask, LifeTask, TimeOfDay, updateLifeTask } from '../lifeTaskStorage';
+import { addLifeTask, deleteLifeTask, LifeTask, parseTimeWindow, TimeOfDay, updateLifeTask } from '../lifeTaskStorage';
 
 interface LifeTaskModalProps {
   visible: boolean;
@@ -53,6 +53,10 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
         emoji: formEmoji || '✨',
         name: formName,
         timeWindow: formTimeWindow,
+        // The window is free text here, so the hours reminders need are read
+        // back out of whatever was typed.
+        ...parseTimeWindow(formTimeWindow),
+        remind: true,
         timeOfDay: formTimeOfDay,
         enabled: true,
         isDefault: false,
@@ -63,6 +67,7 @@ export default function LifeTaskModal({ visible, task, isCreatingNew, onClose, o
         emoji: formEmoji,
         name: formName,
         timeWindow: formTimeWindow,
+        ...parseTimeWindow(formTimeWindow),
         timeOfDay: formTimeOfDay,
         repeats: formRepeats,
       });
