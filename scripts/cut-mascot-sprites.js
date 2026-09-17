@@ -25,11 +25,28 @@ const BG_LUM = 236;
 const FEATHER_HI = 236;
 const FEATHER_LO = 175;
 /** One scale for every sheet, so the mascot never changes size mid-animation. */
-const SCALE = 0.64;
+
 /** Transparent margin kept around each frame. */
 const PAD = 6;
 
-const SHEETS = ['happy', 'sleeping', 'walking', 'working'];
+/**
+ * The sheets, and how much each is scaled on the way out.
+ *
+ * The first four arrive at roughly three times the size they are ever drawn
+ * at, so they are taken down to something sensible for a phone. `held` and
+ * `recover` arrive far smaller — around a hundred pixels of character rather
+ * than three hundred — so they are kept at full size; downscaling them too
+ * would leave the mascot visibly softer while it is being carried than it is
+ * the moment you let go.
+ */
+const SHEETS = {
+  happy: 0.64,
+  sleeping: 0.64,
+  walking: 0.64,
+  working: 0.64,
+  held: 1,
+  recover: 1,
+};
 
 const lumOf = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
 
@@ -155,12 +172,13 @@ function downscale(src, sw, sh, dw, dh) {
 fs.mkdirSync(OUT, { recursive: true });
 // A re-cut of a sheet with fewer frames than last time must not leave the
 // extras behind for frames.ts to pick up.
+const cut = new RegExp(`^(${Object.keys(SHEETS).join('|')})-\d+\.png$`);
 for (const f of fs.readdirSync(OUT)) {
-  if (/^(happy|sleeping|walking|working)-\d+\.png$/.test(f)) fs.unlinkSync(path.join(OUT, f));
+  if (cut.test(f)) fs.unlinkSync(path.join(OUT, f));
 }
 const manifest = {};
 
-for (const name of SHEETS) {
+for (const [name, scale] of Object.entries(SHEETS)) {
   const png = PNG.sync.read(fs.readFileSync(path.join(SRC, `${name}.png`)));
   const { width: W, height: H, data } = png;
   const bg = backgroundMask(data, W, H);
@@ -174,8 +192,8 @@ for (const name of SHEETS) {
   const frameW = Math.max(...frames.map((f) => f.x1 - f.x0 + 1)) + PAD * 2;
   const frameH = Math.max(...frames.map((f) => f.bottom - f.top + 1)) + PAD * 2;
 
-  const outW = Math.round(frameW * SCALE);
-  const outH = Math.round(frameH * SCALE);
+  const outW = Math.round(frameW * scale);
+  const outH = Math.round(frameH * scale);
 
   frames.forEach((f, idx) => {
     // Centre each frame on its own content so the sheet's layout spacing

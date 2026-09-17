@@ -30,7 +30,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { curve, radius, sage } from '@/theme/sage';
 import { useMotion } from '@/theme/useMotion';
-import { BOX_H, BOX_W, CLIPS, CLIP_NAMES, type ClipName } from '../mascot/frames';
+import { BOX_H, BOX_W, CLIPS, type ClipName } from '../mascot/frames';
 import { RoomLight } from './RoomLight';
 import { ROAM, RUG, StudyRoom } from './StudyRoom';
 
@@ -67,6 +67,13 @@ const LAMPS: Record<MascotPhase, number> = {
   resting: 0.45,
   complete: 0.9,
 };
+
+/**
+ * The clips the study ever shows. Not every clip in the sheet set: `held` and
+ * `recover` belong to the roaming mascot, which can be picked up — the one in
+ * here cannot, and mounting their frames would just be images nobody sees.
+ */
+const STAGE_CLIPS: ClipName[] = ['walking', 'working', 'sleeping', 'happy'];
 
 /** The mascot's height as a fraction of the stage, measured on `walking`. */
 const MASCOT_SCALE = 0.3;
@@ -318,7 +325,7 @@ const Occupant = memo(function Occupant({
         pointerEvents="none"
         style={[{ position: 'absolute', left, top, width: boxW, height: boxH }, body]}
       >
-        {CLIP_NAMES.map((name) => (
+        {STAGE_CLIPS.map((name) => (
           <ClipLayer key={name} name={name} visible={name === clip} clock={clock} scale={scale} />
         ))}
       </Animated.View>

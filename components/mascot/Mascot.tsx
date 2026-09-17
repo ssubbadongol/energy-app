@@ -187,16 +187,17 @@ export function Mascot() {
   /* --- flipbook ------------------------------------------------------ */
 
   useEffect(() => {
-    const { sources, fps } = CLIPS[clip];
+    const { sources, fps, loop } = CLIPS[clip];
+    // A one-shot stops a hair short of the frame count so its last frame is
+    // the one left showing; running it all the way to `length` would wrap the
+    // modulo back to frame zero and undo the ending.
+    const end = loop === false ? sources.length - 0.001 : sources.length;
+    const run = withTiming(end, {
+      duration: (sources.length / fps) * 1000,
+      easing: Easing.linear,
+    });
     clock.value = 0;
-    clock.value = withRepeat(
-      withTiming(sources.length, {
-        duration: (sources.length / fps) * 1000,
-        easing: Easing.linear,
-      }),
-      -1,
-      false,
-    );
+    clock.value = loop === false ? run : withRepeat(run, -1, false);
   }, [clip, clock]);
 
   /* --- the roaming loop ---------------------------------------------- */
@@ -217,6 +218,8 @@ export function Mascot() {
   const held = useRef(false);
   /** True from release until the loop has acknowledged the new position. */
   const dropped = useRef(false);
+  /** True while the put-down animation is still playing itself out. */
+  const recovering = useRef(false);
   /** The showing clip, readable from the loop without re-running it. */
   const clipRef = useRef<ClipName>('working');
   clipRef.current = clip;
@@ -247,7 +250,7 @@ export function Mascot() {
   const beginDrag = useCallback(() => {
     held.current = true;
     dropped.current = false;
-    setClip('walking');
+    setClip('held');
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, []);
 
@@ -257,6 +260,10 @@ export function Mascot() {
     // mascot back the moment the finger lifts. `dropped` holds the tracker off
     // until the loop has seen the new position and set off from it.
     dropped.current = true;
+    // It lands flat, lies there a beat and picks itself up. `recovering` keeps
+    // the loop from walking it off mid-sprawl.
+    recovering.current = true;
+    setClip('recover');
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     wake.current?.();
   }, []);
@@ -571,11 +578,27 @@ export function Mascot() {
     };
 
     /**
+     * Let the put-down animation play out before anything walks the mascot
+     * away from where it was dropped. Costs nothing when it is not running.
+     */
+    const finishRecovering = async () => {
+      if (!recovering.current) return;
+      const { sources, fps } = CLIPS.recover;
+      await rest((sources.length / fps) * 1000 + 120);
+      recovering.current = false;
+    };
+
+    /**
      * Hold a container's mood for a stretch, breaking out early for a tap, for
      * the container scrolling away, or for another container calling.
      */
     const settle = async (mood: MascotMood, ms: number) => {
-      setClip(MOOD_CLIP[mood]);
+      // Not while it is in the air or still getting up: a stint beginning
+      // underneath a drag would stamp the mood clip over the carry animation.
+      const wear = () => {
+        if (!held.current && !recovering.current) setClip(MOOD_CLIP[mood]);
+      };
+      wear();
       let remaining = ms;
       while (remaining > 0 && !cancelled && !lost) {
         if (held.current) {
@@ -590,7 +613,7 @@ export function Mascot() {
           await cheer();
           if (cancelled) return;
           remaining = Math.max(remaining - CHEER_MS, 900);
-          setClip(MOOD_CLIP[mood]);
+          wear();
           continue;
         }
         if (tapped.current) {
@@ -698,6 +721,8 @@ export function Mascot() {
         unpark();
         dropped.current = false;
         if (cancelled) return;
+        await finishRecovering();
+        if (cancelled) return;
 
         // Being called means staying put, so skip the stroll and loop straight
         // back into the mood the caller asked for.
@@ -711,6 +736,7 @@ export function Mascot() {
             await settle(current.mood, rand(stay.hold[0] * 0.6, stay.hold[1] * 0.7));
             unpark();
             dropped.current = false;
+            await finishRecovering();
           }
         }
       }

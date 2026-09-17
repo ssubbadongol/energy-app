@@ -14,7 +14,7 @@
  */
 import type { ImageSourcePropType } from 'react-native';
 
-export type ClipName = 'walking' | 'working' | 'sleeping' | 'happy';
+export type ClipName = 'walking' | 'working' | 'sleeping' | 'happy' | 'held' | 'recover';
 
 export interface Clip {
   sources: ImageSourcePropType[];
@@ -23,6 +23,8 @@ export interface Clip {
   height: number;
   /** Sprite frames per second. */
   fps: number;
+  /** Plays once and holds its last frame when false. Defaults to looping. */
+  loop?: boolean;
   /** The single frame to hold under Reduce Motion — the most characterful one. */
   still: number;
 }
@@ -96,6 +98,43 @@ export const CLIPS: Record<ClipName, Clip> = {
     width: 68,
     height: 95,
     fps: 12,
+    still: 4,
+  },
+
+  /**
+   * Dangling from a finger, squirming. Loops for as long as the user holds on.
+   *
+   * The supplied art had a drawn human hand pinching the tail, which
+   * `scripts/cut-hand-from-pick.js` removes — the thing holding the mascot is
+   * the user's own finger, and a second hand beside it reads as a bug.
+   */
+  held: {
+    sources: [
+      require('../../assets/mascot/held-0.png'),
+      require('../../assets/mascot/held-1.png'),
+    ],
+    width: 60,
+    height: 88,
+    fps: 5,
+    still: 0,
+  },
+
+  /**
+   * Put down: lands flat, lies there a beat, picks itself up and hops off.
+   * Plays once — it is a reaction to being let go, not a state to sit in.
+   */
+  recover: {
+    sources: [
+      require('../../assets/mascot/recover-0.png'),
+      require('../../assets/mascot/recover-1.png'),
+      require('../../assets/mascot/recover-2.png'),
+      require('../../assets/mascot/recover-3.png'),
+      require('../../assets/mascot/recover-4.png'),
+    ],
+    width: 84,
+    height: 87,
+    fps: 7,
+    loop: false,
     still: 4,
   },
 };
