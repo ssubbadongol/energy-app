@@ -28,6 +28,7 @@ import {
   type MascotMood,
   type Perch,
   type PerchRect,
+  type PerchSpot,
 } from './registry';
 
 /* ------------------------------------------------------------------ *
@@ -336,22 +337,41 @@ export function Mascot() {
      */
     const rest = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-    /** The y a given container puts the mascot's feet at. */
-    const footYFor = (rect: PerchRect, perch: Perch) =>
-      perch.spot === 'inside' ? rect.y + rect.height - SINK * 2 : rect.y + SINK;
+    /** The y a given spot on a container puts the mascot's feet at. */
+    const footYFor = (rect: PerchRect, spot: PerchSpot) =>
+      spot === 'inside' ? rect.y + rect.height - SINK * 2 : rect.y + SINK;
 
-    /** Where the mascot should land on a container, or null if it is off screen. */
+    /**
+     * Where the mascot should land on a container, or null if it cannot.
+     *
+     * Standing on a container's top edge needs a whole mascot's worth of clear
+     * space above it, which the topmost card on a screen never has — so that
+     * card was silently unreachable, and on a screen with only one container
+     * (a conversation, where the composer is the only thing safe to stand on)
+     * that meant no mascot at all. If the preferred spot has no headroom, the
+     * other one is tried before giving up: standing inside a tall card near its
+     * bottom needs no room above it.
+     *
+     * The spot that won is returned, because the tracker that follows the
+     * container while the user scrolls has to keep using the same one.
+     */
     const footFor = (rect: PerchRect, perch: Perch) => {
       const { top, bottom, width } = bounds.current;
-      const y = footYFor(rect, perch);
-      if (y - BOX_H < top || y > bottom) return null;
+      const order: PerchSpot[] =
+        perch.spot === 'inside' ? ['inside', 'top'] : ['top', 'inside'];
 
-      // Land somewhere different along the container each time, without
-      // letting any part of the sprite leave the screen.
-      const slack = Math.max(0, rect.width / 2 - BOX_W / 2 - 8);
-      const x = rect.x + rect.width / 2 + rand(-slack, slack);
-      const half = BOX_W / 2 + 6;
-      return { x: Math.max(half, Math.min(width - half, x)), y };
+      for (const spot of order) {
+        const y = footYFor(rect, spot);
+        if (y - BOX_H < top || y > bottom) continue;
+
+        // Land somewhere different along the container each time, without
+        // letting any part of the sprite leave the screen.
+        const slack = Math.max(0, rect.width / 2 - BOX_W / 2 - 8);
+        const x = rect.x + rect.width / 2 + rand(-slack, slack);
+        const half = BOX_W / 2 + 6;
+        return { x: Math.max(half, Math.min(width - half, x)), y, spot };
+      }
+      return null;
     };
 
     /**
@@ -468,7 +488,7 @@ export function Mascot() {
      * the loop is woken to place it somewhere visible instead. If the user
      * scrolls back before that lands, it simply fades in again where it was.
      */
-    const park = (perch: Perch, foot: { x: number; y: number }) => {
+    const park = (perch: Perch, foot: { x: number; y: number; spot: PerchSpot }) => {
       lost = false;
       let offset: number | null = null;
       // Null until the first tick, so parking always asserts visibility rather
@@ -481,7 +501,7 @@ export function Mascot() {
         // down somewhere — snapping it back would undo the drag.
         if (cancelled || parkPaused || held.current || dropped.current || !rect) return;
         if (offset === null) offset = foot.x - (rect.x + rect.width / 2);
-        const y = footYFor(rect, perch);
+        const y = footYFor(rect, foot.spot);
         footX.value = rect.x + rect.width / 2 + offset;
         footY.value = y;
 
@@ -594,7 +614,7 @@ export function Mascot() {
      */
     const wanderAround = async (perch: Perch, mood: MascotMood) => {
       const steps = mood === 'potter' ? 3 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 2);
-      let landed: { x: number; y: number } | null = null;
+      let landed: { x: number; y: number; spot: PerchSpot } | null = null;
       for (let i = 0; i < steps && !cancelled && !lost; i++) {
         const rect = await perch.measure();
         if (cancelled || !rect) return landed;
@@ -624,7 +644,7 @@ export function Mascot() {
 
       while (!cancelled) {
         const caller = registry.caller();
-        let foot: { x: number; y: number } | null = null;
+        let foot: { x: number; y: number; spot: PerchSpot } | null = null;
 
         if (caller && current && caller.id === current.id && placed && !lost) {
           // Already keeping the composer company. Stay, and pick up its mood in
@@ -738,7 +758,8 @@ export function Mascot() {
       const rect = await perch.measure();
       if (cancelled || !rect) return;
       footX.value = rect.x + rect.width / 2;
-      footY.value = rect.y + SINK;
+      footY.value =
+        perch.spot === 'inside' ? rect.y + rect.height - SINK * 2 : rect.y + SINK;
       opacity.value = 1;
       setClip(MOOD_CLIP[perch.mood]);
     };

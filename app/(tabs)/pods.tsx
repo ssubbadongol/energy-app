@@ -27,6 +27,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { MascotPerch } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { ProGate } from '@/components/pro/ProGate';
 import { useEntitlement } from '@/components/pro/EntitlementProvider';
@@ -231,6 +232,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
         </View>
 
         {/* Matchmaking preferences */}
+        <MascotPerch id="pod-prefs" mood="potter">
         <View style={styles.panel}>
           <Text style={text.label}>What&apos;s going on</Text>
           <View style={styles.chipWrap}>
@@ -268,6 +270,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
             a fit.
           </Text>
         </View>
+        </MascotPerch>
 
         {/* Open rooms */}
         <Text style={[text.label, { marginTop: 26, marginBottom: 10 }]}>Rooms with space</Text>
@@ -282,7 +285,8 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
           pods.map((p) => {
             const full = p.memberCount >= POD_MAX_MEMBERS;
             return (
-              <View key={p.id} style={styles.podCard}>
+              <MascotPerch key={p.id} id={`pod-${p.id}`} mood="potter">
+              <View style={styles.podCard}>
                 <View style={[styles.accent, { backgroundColor: SEAT_COLORS[p.topic.length % SEAT_COLORS.length] }]} />
                 <View style={styles.podTop}>
                   <Text style={[text.h2, { flex: 1 }]}>{p.topic}</Text>
@@ -312,6 +316,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
                   </Pressable>
                 </View>
               </View>
+              </MascotPerch>
             );
           })
         )}
@@ -565,6 +570,12 @@ function PodRoom({
           })}
         </ScrollView>
 
+        {/*
+          As on Mentor: a room is a conversation, so the composer is the one
+          thing here the mascot can stand on without walking over what people
+          are saying to each other.
+        */}
+        <MascotPerch id="pod-composer" mood="work">
         <View style={styles.footer}>
           <View style={styles.inputBar}>
             <TextInput
@@ -587,6 +598,7 @@ function PodRoom({
             </Pressable>
           </View>
         </View>
+        </MascotPerch>
       </KeyboardAvoidingView>
 
       <MessageActionSheet

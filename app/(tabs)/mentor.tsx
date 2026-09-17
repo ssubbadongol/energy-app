@@ -27,6 +27,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { MascotPerch } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { ProGate } from '@/components/pro/ProGate';
 import { useEntitlement } from '@/components/pro/EntitlementProvider';
@@ -255,6 +256,14 @@ function MentorChat() {
             ) : null}
           </ScrollView>
 
+          {/*
+            The only perch on this screen, and deliberately so. A conversation
+            has nothing safe to stand on — the mascot walking over the message
+            list would be reading someone's replies at them. Standing on the
+            composer puts it beside the work instead, where the last thing it
+            can cover is a message you have already read.
+          */}
+          <MascotPerch id="mentor-composer" mood="work">
           <View style={styles.footer}>
             {messages.length === 0 ? (
               <ScrollView
@@ -291,6 +300,7 @@ function MentorChat() {
               </Pressable>
             </View>
           </View>
+          </MascotPerch>
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
