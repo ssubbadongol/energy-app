@@ -81,18 +81,46 @@ function alphaMask(data, bg, W, H) {
   return alpha;
 }
 
-/** Contiguous horizontal runs of non-background columns = one frame each. */
-function frameRuns(alpha, W, H) {
+/** Contiguous runs of `true` in a flag array, as [start, end] pairs. */
+function runsOf(filled) {
   const runs = [];
   let start = -1;
-  for (let x = 0; x < W; x++) {
-    let filled = false;
-    for (let y = 0; y < H; y++) if (alpha[y * W + x] > 8) { filled = true; break; }
-    if (filled && start < 0) start = x;
-    else if (!filled && start >= 0) { runs.push([start, x - 1]); start = -1; }
+  for (let i = 0; i < filled.length; i++) {
+    if (filled[i] && start < 0) start = i;
+    else if (!filled[i] && start >= 0) { runs.push([start, i - 1]); start = -1; }
   }
-  if (start >= 0) runs.push([start, W - 1]);
+  if (start >= 0) runs.push([start, filled.length - 1]);
   return runs;
+}
+
+/**
+ * Cut the sheet into frames, reading order.
+ *
+ * Sheets are not all one strip: a longer animation is laid out as a grid, so
+ * rows are found first (bands of pixel rows that contain anything at all) and
+ * then columns within each band. A single-row sheet is just the case where
+ * there is one band, so this handles both without a flag.
+ *
+ * Each frame carries its own band's baseline, which is what keeps the ground
+ * line steady when frames come from different rows.
+ */
+function findFrames(alpha, W, H) {
+  const rowFilled = new Array(H).fill(false);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) if (alpha[y * W + x] > 8) { rowFilled[y] = true; break; }
+  }
+
+  const frames = [];
+  for (const [by0, by1] of runsOf(rowFilled)) {
+    const colFilled = new Array(W).fill(false);
+    for (let x = 0; x < W; x++) {
+      for (let y = by0; y <= by1; y++) if (alpha[y * W + x] > 8) { colFilled[x] = true; break; }
+    }
+    for (const [x0, x1] of runsOf(colFilled)) {
+      frames.push({ x0, x1, top: by0, bottom: by1 });
+    }
+  }
+  return frames;
 }
 
 /** Area-average downscale over premultiplied colour, so edges don't darken. */
@@ -125,6 +153,11 @@ function downscale(src, sw, sh, dw, dh) {
 }
 
 fs.mkdirSync(OUT, { recursive: true });
+// A re-cut of a sheet with fewer frames than last time must not leave the
+// extras behind for frames.ts to pick up.
+for (const f of fs.readdirSync(OUT)) {
+  if (/^(happy|sleeping|walking|working)-\d+\.png$/.test(f)) fs.unlinkSync(path.join(OUT, f));
+}
 const manifest = {};
 
 for (const name of SHEETS) {
@@ -132,29 +165,24 @@ for (const name of SHEETS) {
   const { width: W, height: H, data } = png;
   const bg = backgroundMask(data, W, H);
   const alpha = alphaMask(data, bg, W, H);
-  const runs = frameRuns(alpha, W, H);
+  const frames = findFrames(alpha, W, H);
+  if (!frames.length) throw new Error(`${name}.png: nothing found on the sheet`);
 
-  // One shared vertical window for the whole sheet keeps the ground line fixed
-  // while still letting the character bob between frames.
-  let top = H, bottom = 0;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (alpha[y * W + x] > 8) { if (y < top) top = y; if (y > bottom) bottom = y; break; }
-    }
-  }
-  top = Math.max(0, top - PAD);
-  bottom = Math.min(H - 1, bottom + PAD);
-  const frameH = bottom - top + 1;
-  const frameW = Math.max(...runs.map((r) => r[1] - r[0] + 1)) + PAD * 2;
+  // One frame size for the whole sheet, big enough for the largest frame in it.
+  // Every frame is then bottom-aligned on its own row's baseline, which is what
+  // keeps the character's feet steady across the clip — including across rows.
+  const frameW = Math.max(...frames.map((f) => f.x1 - f.x0 + 1)) + PAD * 2;
+  const frameH = Math.max(...frames.map((f) => f.bottom - f.top + 1)) + PAD * 2;
 
   const outW = Math.round(frameW * SCALE);
   const outH = Math.round(frameH * SCALE);
 
-  runs.forEach(([rx0, rx1], idx) => {
+  frames.forEach((f, idx) => {
     // Centre each frame on its own content so the sheet's layout spacing
     // doesn't leak into the animation as horizontal jitter.
-    const cx = Math.round((rx0 + rx1) / 2);
+    const cx = Math.round((f.x0 + f.x1) / 2);
     const left = cx - Math.floor(frameW / 2);
+    const top = f.bottom + PAD - frameH + 1;
     const buf = Buffer.alloc(frameW * frameH * 4);
     for (let y = 0; y < frameH; y++) {
       for (let x = 0; x < frameW; x++) {
@@ -175,8 +203,8 @@ for (const name of SHEETS) {
     fs.writeFileSync(path.join(OUT, file), PNG.sync.write(small));
   });
 
-  manifest[name] = { frames: runs.length, width: outW, height: outH };
-  console.log(name, '->', runs.length, 'frames', outW + 'x' + outH);
+  manifest[name] = { frames: frames.length, width: outW, height: outH };
+  console.log(name, '->', frames.length, 'frames', outW + 'x' + outH);
 }
 
 console.log(JSON.stringify(manifest, null, 2));
