@@ -229,7 +229,7 @@ const Occupant = memo(function Occupant({
       cancelAnimation(x);
       x.value = 0;
       facing.value = 1;
-      setClip(phase === 'resting' ? 'happy' : CLIP_FOR[phase]);
+      setClip(phase === 'resting' ? 'sleeping' : CLIP_FOR[phase]);
       return;
     }
 
@@ -261,14 +261,16 @@ const Occupant = memo(function Occupant({
 
       timer = setTimeout(() => {
         if (!alive) return;
-        setClip('happy');
+        // A flop on the floor between laps. `happy` is reserved for finishing
+        // something, and a break is a break, not an achievement.
+        setClip('sleeping');
         timer = setTimeout(pace, rand(1400, 3000));
       }, ms);
     };
 
     // Let it stand up before it wanders off.
     timer = setTimeout(pace, 500);
-    setClip('happy');
+    setClip('sleeping');
 
     return () => {
       alive = false;

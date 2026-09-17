@@ -79,11 +79,24 @@ export const CLIPS: Record<ClipName, Clip> = {
       require('../../assets/mascot/happy-0.png'),
       require('../../assets/mascot/happy-1.png'),
       require('../../assets/mascot/happy-2.png'),
+      require('../../assets/mascot/happy-3.png'),
+      require('../../assets/mascot/happy-4.png'),
+      require('../../assets/mascot/happy-5.png'),
+      require('../../assets/mascot/happy-6.png'),
+      require('../../assets/mascot/happy-7.png'),
+      require('../../assets/mascot/happy-8.png'),
+      require('../../assets/mascot/happy-9.png'),
+      require('../../assets/mascot/happy-10.png'),
+      require('../../assets/mascot/happy-11.png'),
     ],
-    width: 96,
-    height: 81,
-    fps: 2.4,
-    still: 1,
+    // Sized so the *character* matches `walking` — the panda that walks up to
+    // a finished task is the same panda that celebrates it. The frame is taller
+    // than the others because a quarter of it is the accent marks above the
+    // head, which should float clear of the ears rather than shrink the animal.
+    width: 68,
+    height: 95,
+    fps: 12,
+    still: 4,
   },
 };
 

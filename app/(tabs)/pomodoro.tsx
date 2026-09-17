@@ -33,6 +33,9 @@ import {
 } from '../pomodoroStorage';
 import { track } from '../monitoring';
 
+/** How long the mascot stays pleased after a focus round lands. */
+const CHEER_MS = 3200;
+
 const NOTIF_ID = 'soft-focus-pomodoro-end';
 const CHANNEL_ID = 'task-focus';
 
@@ -94,6 +97,12 @@ function Ring({ progress, phase }: { progress: number; phase: Phase }) {
 export default function PomodoroScreen() {
   const [settings, setSettings] = useState<PomodoroSettings>(DEFAULT_SETTINGS);
   const [phase, setPhase] = useState<Phase>('focus');
+  /** Held just after a focus round lands, so the mascot can celebrate it. */
+  const [cheering, setCheering] = useState(false);
+  const cheerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (cheerTimer.current) clearTimeout(cheerTimer.current);
+  }, []);
   /** Focus rounds finished in the current cycle. Resets after a long break. */
   const [round, setRound] = useState(0);
 
@@ -273,6 +282,11 @@ export default function PomodoroScreen() {
       // From the middle of the ring, where the user is already looking.
       const centre = ringCentre.current;
       if (centre) celebrate(centre.x, centre.y);
+      // And the mascot gets to be pleased about it, briefly, before the next
+      // phase takes the stage back.
+      setCheering(true);
+      if (cheerTimer.current) clearTimeout(cheerTimer.current);
+      cheerTimer.current = setTimeout(() => setCheering(false), CHEER_MS);
     } else {
       haptic('light');
     }
@@ -348,11 +362,13 @@ export default function PomodoroScreen() {
   const ss = String(totalSeconds % 60).padStart(2, '0');
   const progress = durationMs > 0 ? Math.min(1, Math.max(0, remainingMs / durationMs)) : 0;
 
-  const mascotPhase: MascotPhase = running
-    ? phase === 'focus'
-      ? 'focusing'
-      : 'resting'
-    : 'idle';
+  const mascotPhase: MascotPhase = cheering
+    ? 'complete'
+    : running
+      ? phase === 'focus'
+        ? 'focusing'
+        : 'resting'
+      : 'idle';
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
