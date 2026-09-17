@@ -11,7 +11,7 @@ import {
 export interface MascotPerchProps {
   /** Unique within the screen. `task-12`, `energy`, `progress`, … */
   id: string;
-  /** What the mascot does here. Defaults to its resting state. */
+  /** What the mascot does here. Defaults to pottering about. */
   mood?: MascotMood;
   spot?: PerchSpot;
   /** While true, the mascot comes here and stays. One caller at a time. */
@@ -32,7 +32,7 @@ export interface MascotPerchProps {
  */
 export function MascotPerch({
   id,
-  mood = 'happy',
+  mood = 'potter',
   spot = 'top',
   call = false,
   style,

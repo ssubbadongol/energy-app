@@ -3,7 +3,7 @@ import { Bell, BellOff, Check, Minus, Pencil, Plus } from 'lucide-react-native';
 import React, { useCallback, useRef, useState } from 'react';
 import { Animated, type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MascotPerch } from '@/components/mascot';
+import { MascotPerch, useMascotCheer } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { useCelebrate } from '@/components/sage/Celebration';
 import {
@@ -46,6 +46,7 @@ const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as TimeOfDay, star
 
 export default function LifeScreen() {
   const celebrate = useCelebrate();
+  const cheer = useMascotCheer();
   const [items, setItems] = useState<LifeTask[]>([]);
   const [setup, setSetup] = useState(false);
   const [ready, setReady] = useState(false);
@@ -97,7 +98,10 @@ export default function LifeScreen() {
       // A four-times-a-day item earns the confetti on the fourth tap, not on
       // each one — otherwise the reward stops meaning "finished".
       const finishing = reps > 1 ? item.completedCount + 1 >= reps : !item.completed;
-      if (finishing) celebrate(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      if (finishing) {
+        celebrate(e.nativeEvent.pageX, e.nativeEvent.pageY);
+        cheer();
+      }
     }
     await toggleLifeTaskCompleted(id);
     refresh();
@@ -170,7 +174,7 @@ export default function LifeScreen() {
               <Text style={[text.body, { marginTop: 6, maxWidth: 260 }]}>Pick which apply to you. Everything else stays off — you can change this any time.</Text>
             </View>
 
-            <MascotPerch id="setup-items" mood="working">
+            <MascotPerch id="setup-items" mood="work">
             <View style={[styles.card, { paddingVertical: 8, paddingHorizontal: 16 }]}>
               {items.map((i, idx) => (
                 <View key={i.id} style={[styles.setupRow, idx === items.length - 1 && { borderBottomWidth: 0 }]}>
@@ -204,7 +208,7 @@ export default function LifeScreen() {
             </View>
             </MascotPerch>
 
-            <MascotPerch id="routine-composer" mood="working" call={!!editingId}>
+            <MascotPerch id="routine-composer" mood="work" call={!!editingId}>
             <View style={[styles.card, { marginTop: 14 }]}>
               <Text style={[text.labelFaint, { marginBottom: 12 }]}>{editingId ? 'Edit routine item' : 'Add your own'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -296,7 +300,7 @@ export default function LifeScreen() {
               const secItems = items.filter((i) => i.timeOfDay === s.key && i.enabled);
               if (secItems.length === 0) return null;
               return (
-                <MascotPerch key={s.key} id={`section-${s.key}`} mood="happy" style={{ marginBottom: 18 }}>
+                <MascotPerch key={s.key} id={`section-${s.key}`} mood="potter" style={{ marginBottom: 18 }}>
                   <View style={styles.sectionRule}>
                     <Text style={text.label}>{s.title}</Text>
                     <View style={styles.sectionLine} />

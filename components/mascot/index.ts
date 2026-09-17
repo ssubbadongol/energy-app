@@ -2,6 +2,7 @@ export { Mascot } from './Mascot';
 export { MascotPerch } from './MascotPerch';
 export { MascotProvider } from './MascotProvider';
 export {
+  useMascotCheer,
   useMascotRegistry,
   type MascotMood,
   type Perch,

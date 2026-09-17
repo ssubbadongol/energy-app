@@ -1,14 +1,22 @@
-import { createContext, useContext } from 'react';
+import { createContext, useCallback, useContext } from 'react';
 
 /**
- * What the mascot does while it is standing on a container.
+ * What the mascot does while it is at a container.
  *
- * The clip is a property of the container, not a random draw: a task is
- * something being worked on, a finished one is something to rest beside, and
- * everything else is just a good place to sit. `walking` is not a mood — it is
- * only ever travel between containers, or a wander around one.
+ * Named for the behaviour rather than the sprite, because the two are not one
+ * to one: `potter` and `work` both show the laptop clip and differ only in how
+ * long the mascot stays put before wandering off again.
+ *
+ *   potter  restless — a short pause, then off walking again. The default,
+ *           and what "waiting for you to do something" looks like.
+ *   work    settles in for a while. Tasks, composers, anything being worked on.
+ *   rest    naps. Finished tasks, an empty day, a paused session.
+ *
+ * `walking` is not a mood: it is travel between containers and pottering
+ * around one. `happy` is not a mood either — it is reserved for finishing a
+ * task, and nothing else in the app may spend it.
  */
-export type MascotMood = 'happy' | 'working' | 'sleeping';
+export type MascotMood = 'potter' | 'work' | 'rest';
 
 /** Where on a container the mascot stands. */
 export type PerchSpot =
@@ -52,6 +60,7 @@ export interface Perch {
 export class PerchRegistry {
   private perches = new Map<string, Perch>();
   private listeners = new Set<() => void>();
+  private cheers = new Set<() => void>();
   private flushing = false;
 
   add(perch: Perch): void {
@@ -76,6 +85,21 @@ export class PerchRegistry {
     return this.list().find((p) => p.call);
   }
 
+  /**
+   * Something got finished. This is the only thing that spends the `happy`
+   * clip, which is what keeps it meaning "well done" rather than "hello".
+   */
+  celebrate(): void {
+    this.cheers.forEach((fn) => fn());
+  }
+
+  onCelebrate(fn: () => void): () => void {
+    this.cheers.add(fn);
+    return () => {
+      this.cheers.delete(fn);
+    };
+  }
+
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => {
@@ -98,4 +122,16 @@ export const MascotRegistryContext = createContext<PerchRegistry | null>(null);
 
 export function useMascotRegistry(): PerchRegistry | null {
   return useContext(MascotRegistryContext);
+}
+
+/**
+ * Returns a function to call the moment the user finishes something.
+ *
+ * Call it alongside the confetti, from the same branch that already decided
+ * the thing is genuinely done — un-ticking a task is not an achievement, and
+ * neither is the third of four daily repeats.
+ */
+export function useMascotCheer(): () => void {
+  const registry = useContext(MascotRegistryContext);
+  return useCallback(() => registry?.celebrate(), [registry]);
 }

@@ -1,16 +1,18 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
-  Pressable,
   StyleSheet,
   useWindowDimensions,
   View,
   type ImageSourcePropType,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   Easing,
+  cancelAnimation,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -20,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useReduceMotion } from '@/theme/useMotion';
 import { BOX_H, BOX_W, CLIPS, CLIP_NAMES, type ClipName } from './frames';
+import { HOP_MS, planWalk } from './walk';
 import {
   MascotRegistryContext,
   type MascotMood,
@@ -35,28 +38,31 @@ import {
 const TAB_BAR_H = 62;
 /** How far the feet sink into the edge they stand on, so it reads as contact. */
 const SINK = 9;
-/** Roughly one hop per this many dp of travel. */
-const HOP_SPAN = 110;
-const MAX_HOPS = 6;
-const HOP_MS = 320;
 /** Position resync while parked, so the mascot rides its card as you scroll. */
 const FOLLOW_MS = 40;
-const REACTION_MS = 2600;
+/** How long the mascot beams after the user finishes something. */
+const CHEER_MS = 2800;
 
 /**
- * How long the mascot settles into a container's mood before doing anything
- * else. Long enough to read as an activity rather than a flicker.
+ * How long the mascot stays at a container, and how likely it is to wander off
+ * around it rather than hold still, per mood.
+ *
+ * `potter` is the default and is deliberately restless: a couple of seconds
+ * standing, then almost always back on its feet. Most of what you see the
+ * mascot do should be walking.
  */
-const SETTLE_MIN = 10000;
-const SETTLE_MAX = 14000;
-/** A second, shorter stint after a wander, before it moves on. */
-const RESETTLE_MIN = 7000;
-const RESETTLE_MAX = 10000;
-/** Chance that a stint is followed by a wander around the same container. */
-const WANDER_CHANCE = 0.45;
+const STAY: Record<MascotMood, { hold: [number, number]; wander: number }> = {
+  potter: { hold: [1800, 3600], wander: 0.92 },
+  work: { hold: [7000, 11000], wander: 0.4 },
+  rest: { hold: [8000, 13000], wander: 0.25 },
+};
 
-/** The mascot's resting state, and what it falls back to. */
-const RESTING: MascotMood = 'happy';
+/** The sprite each mood holds while it is standing still. */
+const MOOD_CLIP: Record<MascotMood, ClipName> = {
+  potter: 'working',
+  work: 'working',
+  rest: 'sleeping',
+};
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -164,7 +170,7 @@ export function Mascot() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
-  const [clip, setClip] = useState<ClipName>(RESTING);
+  const [clip, setClip] = useState<ClipName>('working');
 
   /** Foot position in window coordinates — the sprite box's bottom centre. */
   const footX = useSharedValue(screenW / 2);
@@ -204,6 +210,15 @@ export function Mascot() {
   };
 
   const tapped = useRef(false);
+  /** Set by the cheer signal; spent by the loop on the next beat. */
+  const cheered = useRef(false);
+  /** True while a finger is on the mascot. */
+  const held = useRef(false);
+  /** True from release until the loop has acknowledged the new position. */
+  const dropped = useRef(false);
+  /** The showing clip, readable from the loop without re-running it. */
+  const clipRef = useRef<ClipName>('working');
+  clipRef.current = clip;
   const wake = useRef<(() => void) | null>(null);
 
   const onTap = useCallback(() => {
@@ -211,6 +226,78 @@ export function Mascot() {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     wake.current?.();
   }, []);
+
+  /* --- drag ----------------------------------------------------------- */
+
+  // Where a dragged mascot is allowed to end up. Kept on the UI thread so the
+  // clamp happens in the gesture itself rather than a frame later.
+  const limits = useSharedValue({ minX: 0, maxX: 0, minY: 0, maxY: 0 });
+  /** 1 only between the pan actually activating and its release. */
+  const dragging = useSharedValue(0);
+  useEffect(() => {
+    limits.value = {
+      minX: BOX_W / 2 + 6,
+      maxX: screenW - BOX_W / 2 - 6,
+      minY: insets.top + 4 + BOX_H,
+      maxY: screenH - insets.bottom - TAB_BAR_H - 2,
+    };
+  }, [screenW, screenH, insets.top, insets.bottom, limits]);
+
+  const beginDrag = useCallback(() => {
+    held.current = true;
+    dropped.current = false;
+    setClip('walking');
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
+
+  const endDrag = useCallback(() => {
+    held.current = false;
+    // The loop may be parked on a container and would otherwise snap the
+    // mascot back the moment the finger lifts. `dropped` holds the tracker off
+    // until the loop has seen the new position and set off from it.
+    dropped.current = true;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    wake.current?.();
+  }, []);
+
+  const gesture = useMemo(() => {
+    const drag = Gesture.Pan()
+      .minDistance(3)
+      .onStart(() => {
+        'worklet';
+        dragging.value = 1;
+        // Whatever walk was under way loses the argument to the finger.
+        cancelAnimation(footX);
+        cancelAnimation(footY);
+        cancelAnimation(squash);
+        squash.value = withTiming(1, { duration: 120 });
+        runOnJS(beginDrag)();
+      })
+      .onChange((e) => {
+        'worklet';
+        const l = limits.value;
+        footX.value = Math.min(l.maxX, Math.max(l.minX, footX.value + e.changeX));
+        footY.value = Math.min(l.maxY, Math.max(l.minY, footY.value + e.changeY));
+        facing.value = e.changeX > 1 ? 1 : e.changeX < -1 ? -1 : facing.value;
+      })
+      .onFinalize(() => {
+        'worklet';
+        // onFinalize runs even when the pan never activated — without this, a
+        // plain tap would take the whole "put the mascot down" path.
+        if (!dragging.value) return;
+        dragging.value = 0;
+        runOnJS(endDrag)();
+      });
+
+    const poke = Gesture.Tap()
+      .maxDistance(8)
+      .onEnd((_e, success) => {
+        'worklet';
+        if (success) runOnJS(onTap)();
+      });
+
+    return Gesture.Exclusive(drag, poke);
+  }, [beginDrag, endDrag, onTap, facing, footX, footY, squash, limits, dragging]);
 
   useEffect(() => {
     if (!registry || reduceMotion) return;
@@ -222,6 +309,10 @@ export function Mascot() {
     /** Held while a deliberate animation owns the position, e.g. a tap hop. */
     let parkPaused = false;
 
+    /**
+     * An interruptible wait, for time the mascot is only passing. A registry
+     * change or a cheer cuts it short so the loop reacts at once.
+     */
     const sleep = (ms: number) =>
       new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
@@ -234,6 +325,16 @@ export function Mascot() {
           resolve();
         };
       });
+
+    /**
+     * An uninterruptible wait, for time an animation owns.
+     *
+     * Waiting out a walk with `sleep` was a bug: anything that rang the bell
+     * mid-stride returned the loop early, which then parked the mascot while
+     * its position animation was still running — so it snapped to the card
+     * from wherever it had got to.
+     */
+    const rest = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
     /** The y a given container puts the mascot's feet at. */
     const footYFor = (rect: PerchRect, perch: Perch) =>
@@ -275,45 +376,40 @@ export function Mascot() {
       return null;
     };
 
-    /** Hop across in an arc, turning to face the way we are going. */
+    /**
+     * Walk to a point. The route, pace and hop count come from `planWalk`;
+     * everything here is just driving the shared values along it.
+     */
     const travelTo = async (to: { x: number; y: number }) => {
-      const fromX = footX.value;
-      const fromY = footY.value;
-      const dx = to.x - fromX;
-      const dy = to.y - fromY;
-      const distance = Math.hypot(dx, dy);
+      const { width } = bounds.current;
+      const half = BOX_W / 2 + 6;
+      const from = { x: footX.value, y: footY.value };
+      const { steps, durationMs } = planWalk(from, to, half, width - half);
 
-      if (Math.abs(dx) > 12) facing.value = withTiming(dx > 0 ? 1 : -1, { duration: 150 });
+      const firstDx = steps[0].x - from.x;
+      if (Math.abs(firstDx) > 8) facing.value = withTiming(firstDx > 0 ? 1 : -1, { duration: 150 });
 
-      const hops = Math.max(1, Math.min(MAX_HOPS, Math.round(distance / HOP_SPAN)));
-      const xs: number[] = [];
-      const ys: number[] = [];
-      for (let i = 1; i <= hops; i++) {
-        xs.push(fromX + (dx * i) / hops);
-        ys.push(fromY + (dy * i) / hops);
-      }
-
-      const lift = 26 + Math.min(20, (distance / hops) * 0.14);
+      const lift = 22 + Math.min(16, (durationMs / steps.length) * 0.05);
 
       footX.value = withSequence(
-        ...xs.map((x) => withTiming(x, { duration: HOP_MS, easing: Easing.linear })),
+        ...steps.map((p) => withTiming(p.x, { duration: HOP_MS, easing: Easing.linear })),
       );
       footY.value = withSequence(
-        ...ys.flatMap((y, i) => {
-          const start = i === 0 ? fromY : ys[i - 1];
+        ...steps.flatMap((p, i) => {
+          const start = i === 0 ? from.y : steps[i - 1].y;
           return [
-            withTiming(Math.min(start, y) - lift, {
+            withTiming(Math.min(start, p.y) - lift, {
               duration: HOP_MS / 2,
               easing: Easing.out(Easing.quad),
             }),
-            withTiming(y, { duration: HOP_MS / 2, easing: Easing.in(Easing.quad) }),
+            withTiming(p.y, { duration: HOP_MS / 2, easing: Easing.in(Easing.quad) }),
           ];
         }),
       );
       // Each hop opens with the squash from the previous landing and rolls on
       // into the next take-off's stretch, so a run reads as one motion.
       squash.value = withSequence(
-        ...xs.flatMap(() => [
+        ...steps.flatMap(() => [
           withTiming(0.9, { duration: HOP_MS * 0.12 }),
           withTiming(1.06, { duration: HOP_MS * 0.23 }),
           withTiming(1, { duration: HOP_MS * 0.65 }),
@@ -324,14 +420,30 @@ export function Mascot() {
       );
 
       setClip('walking');
-      await sleep(hops * HOP_MS + 170);
+
+      // Turn at each waypoint as it is reached, so the return leg of a detour
+      // is not moonwalked.
+      const turns: ReturnType<typeof setTimeout>[] = [];
+      for (let i = 1; i < steps.length; i++) {
+        const dx = steps[i].x - steps[i - 1].x;
+        if (Math.abs(dx) < 8) continue;
+        const dir = dx > 0 ? 1 : -1;
+        turns.push(
+          setTimeout(() => {
+            if (!cancelled && !held.current) facing.value = withTiming(dir, { duration: 130 });
+          }, i * HOP_MS),
+        );
+      }
+
+      await rest(durationMs + 150);
+      turns.forEach(clearTimeout);
     };
 
     /** Drop in from off screen, for the first appearance and after a tab change. */
     const arriveAt = async (foot: { x: number; y: number }) => {
       if (cancelled) return;
       opacity.value = withTiming(0, { duration: 160 });
-      await sleep(170);
+      await rest(170);
       if (cancelled) return;
       footX.value = foot.x;
       footY.value = foot.y - 40;
@@ -344,7 +456,7 @@ export function Mascot() {
         withTiming(1.05, { duration: 90 }),
         withTiming(1, { duration: 110 }),
       );
-      await sleep(500);
+      await rest(500);
     };
 
     /**
@@ -365,7 +477,9 @@ export function Mascot() {
 
       parked = setInterval(async () => {
         const rect = await perch.measure();
-        if (cancelled || parkPaused || !rect) return;
+        // A finger beats the tracker, and so does a mascot that was just put
+        // down somewhere — snapping it back would undo the drag.
+        if (cancelled || parkPaused || held.current || dropped.current || !rect) return;
         if (offset === null) offset = foot.x - (rect.x + rect.width / 2);
         const y = footYFor(rect, perch);
         footX.value = rect.x + rect.width / 2 + offset;
@@ -395,28 +509,45 @@ export function Mascot() {
       parked = null;
     };
 
-    /**
-     * Answer a tap: a hop on the spot and a beam. The position tracker is
-     * paused for the hop so the two are not writing footY at each other.
-     */
-    const react = async () => {
-      tapped.current = false;
-      setClip('happy');
+    /** A hop on the spot, with the position tracker held off for the arc. */
+    const hopInPlace = async (lift: number, ms: number) => {
       parkPaused = true;
       const base = footY.value;
       footY.value = withSequence(
-        withTiming(base - 26, { duration: 160, easing: Easing.out(Easing.quad) }),
-        withTiming(base, { duration: 180, easing: Easing.in(Easing.quad) }),
+        withTiming(base - lift, { duration: ms * 0.45, easing: Easing.out(Easing.quad) }),
+        withTiming(base, { duration: ms * 0.55, easing: Easing.in(Easing.quad) }),
       );
       squash.value = withSequence(
-        withTiming(1.12, { duration: 160 }),
+        withTiming(1.12, { duration: ms * 0.45 }),
         withTiming(0.88, { duration: 100 }),
         withTiming(1.04, { duration: 110 }),
         withTiming(1, { duration: 120 }),
       );
-      await sleep(420);
+      await rest(ms + 340);
       parkPaused = false;
-      await sleep(REACTION_MS - 420);
+    };
+
+    /**
+     * Answer a tap. A boop, not a celebration — the clip is left alone, because
+     * `happy` now means "you finished something" and a poke is not that.
+     */
+    const boop = async () => {
+      tapped.current = false;
+      await hopInPlace(24, 340);
+    };
+
+    /**
+     * The user finished something. This is the only place `happy` is spent.
+     */
+    const cheer = async () => {
+      cheered.current = false;
+      const was = clipRef.current;
+      setClip('happy');
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await hopInPlace(30, 380);
+      if (cancelled) return;
+      await rest(CHEER_MS - 380);
+      if (!cancelled) setClip(was);
     };
 
     /**
@@ -424,14 +555,28 @@ export function Mascot() {
      * the container scrolling away, or for another container calling.
      */
     const settle = async (mood: MascotMood, ms: number) => {
-      setClip(mood);
+      setClip(MOOD_CLIP[mood]);
       let remaining = ms;
       while (remaining > 0 && !cancelled && !lost) {
-        if (tapped.current) {
-          await react();
+        if (held.current) {
+          await sleep(250);
+          continue;
+        }
+        // Put down somewhere new: take the position as given and walk on from
+        // it rather than finishing a stint that is no longer where it started.
+        // The flag is cleared by the caller, after it has stopped the tracker.
+        if (dropped.current) return;
+        if (cheered.current) {
+          await cheer();
           if (cancelled) return;
-          remaining -= REACTION_MS;
-          setClip(mood);
+          remaining = Math.max(remaining - CHEER_MS, 900);
+          setClip(MOOD_CLIP[mood]);
+          continue;
+        }
+        if (tapped.current) {
+          await boop();
+          if (cancelled) return;
+          remaining -= 700;
           continue;
         }
         const startedAt = Date.now();
@@ -447,20 +592,25 @@ export function Mascot() {
      * A few unhurried steps around the container it is already on. This is
      * where the walking clip gets to be an idle rather than only a commute.
      */
-    const wanderAround = async (perch: Perch) => {
-      const steps = 2 + Math.floor(Math.random() * 3);
+    const wanderAround = async (perch: Perch, mood: MascotMood) => {
+      const steps = mood === 'potter' ? 3 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 2);
       let landed: { x: number; y: number } | null = null;
-      for (let i = 0; i < steps && !cancelled; i++) {
+      for (let i = 0; i < steps && !cancelled && !lost; i++) {
         const rect = await perch.measure();
         if (cancelled || !rect) return landed;
         const foot = footFor(rect, perch);
         if (!foot) return landed;
         await travelTo(foot);
         landed = foot;
-        // Pause mid-stroll and look pleased with itself.
-        if (Math.random() < 0.55) {
-          setClip(RESTING);
-          await sleep(rand(700, 1400));
+        if (cheered.current) {
+          await cheer();
+          if (cancelled) return landed;
+        }
+        // A beat between legs, still on its feet. Short, so the walk stays the
+        // thing you notice rather than the pauses between bits of it.
+        if (Math.random() < 0.4) {
+          setClip(MOOD_CLIP[mood]);
+          await sleep(rand(600, 1300));
         }
       }
       return landed;
@@ -521,22 +671,26 @@ export function Mascot() {
         }
 
         known = new Set(registry.list().map((p) => p.id));
+        const stay = STAY[current.mood];
+
         park(current, foot);
-        await settle(current.mood, rand(SETTLE_MIN, SETTLE_MAX));
+        await settle(current.mood, rand(stay.hold[0], stay.hold[1]));
         unpark();
+        dropped.current = false;
         if (cancelled) return;
 
         // Being called means staying put, so skip the stroll and loop straight
         // back into the mood the caller asked for.
         if (registry.caller()?.id === current.id) continue;
 
-        if (!lost && Math.random() < WANDER_CHANCE && registry.get(current.id)) {
-          const landed = await wanderAround(current);
+        if (!lost && Math.random() < stay.wander && registry.get(current.id)) {
+          const landed = await wanderAround(current, current.mood);
           if (cancelled) return;
           if (landed && !lost) {
             park(current, landed);
-            await settle(current.mood, rand(RESETTLE_MIN, RESETTLE_MAX));
+            await settle(current.mood, rand(stay.hold[0] * 0.6, stay.hold[1] * 0.7));
             unpark();
+            dropped.current = false;
           }
         }
       }
@@ -545,12 +699,17 @@ export function Mascot() {
     // A screen registering or dropping its containers cuts the current wait
     // short, so switching tabs moves the mascot immediately.
     const unsubscribe = registry.subscribe(() => wake.current?.());
+    const unsubscribeCheer = registry.onCelebrate(() => {
+      cheered.current = true;
+      wake.current?.();
+    });
     void run();
 
     return () => {
       cancelled = true;
       unpark();
       unsubscribe();
+      unsubscribeCheer();
       wake.current?.();
     };
   }, [registry, reduceMotion, facing, footX, footY, opacity, squash]);
@@ -566,6 +725,11 @@ export function Mascot() {
 
     let cancelled = false;
     const settle = async () => {
+      // Reduce Motion turns off the roaming, not the touch handling. Don't
+      // fight a finger; once it lifts, placement goes back to being ours.
+      if (held.current) return;
+      dropped.current = false;
+
       const perch = registry.caller() ?? registry.list()[0];
       if (!perch) {
         opacity.value = 0;
@@ -576,7 +740,7 @@ export function Mascot() {
       footX.value = rect.x + rect.width / 2;
       footY.value = rect.y + SINK;
       opacity.value = 1;
-      setClip(perch.mood);
+      setClip(MOOD_CLIP[perch.mood]);
     };
 
     void settle();
@@ -613,19 +777,21 @@ export function Mascot() {
         <ClipLayer key={name} name={name} visible={name === clip} clock={clock} />
       ))}
       {/* Sized to the clip that is actually showing, so the mascot never
-          swallows taps meant for the card it is standing on. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Say hello to the mascot"
-        onPress={onTap}
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: (BOX_W - hit.width) / 2,
-          width: hit.width,
-          height: hit.height,
-        }}
-      />
+          swallows touches meant for the card it is standing on. */}
+      <GestureDetector gesture={gesture}>
+        <Animated.View
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel="Mascot. Drag to move it."
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: (BOX_W - hit.width) / 2,
+            width: hit.width,
+            height: hit.height,
+          }}
+        />
+      </GestureDetector>
     </Animated.View>
   );
 }

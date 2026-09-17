@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Animated, type GestureResponderEvent, Platfor
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, { LinearTransition, ReduceMotion, StretchInY, StretchOutY } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
-import { MascotPerch } from '@/components/mascot';
+import { MascotPerch, useMascotCheer } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { useCelebrate } from '@/components/sage/Celebration';
 import { haptic } from '@/components/primitives/usePressScale';
@@ -93,6 +93,7 @@ const FILL_PCT: Record<EnergyKey, `${number}%`> = { low: '34%', mid: '67%', high
 export default function TodayScreen() {
   const today = iso(new Date());
   const celebrate = useCelebrate();
+  const cheer = useMascotCheer();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [greetName, setGreetName] = useState('');
@@ -146,7 +147,10 @@ export default function TodayScreen() {
     // Fired before the write, not after it: the burst should land with the
     // finger, not once AsyncStorage and the Firestore mirror have caught up.
     // Only on the way to done — un-ticking something is not an achievement.
-    if (task && !task.completed && e) celebrate(e.nativeEvent.pageX, e.nativeEvent.pageY);
+    if (task && !task.completed) {
+      if (e) celebrate(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      cheer();
+    }
     await toggleTaskCompletion(id);
     refresh();
   };
@@ -159,7 +163,10 @@ export default function TodayScreen() {
     const before = tasks.find((t) => t.id === taskId)?.completed ?? false;
     await toggleSubtask(taskId, subtaskId);
     const after = getSharedTasks().find((t) => t.id === taskId)?.completed ?? false;
-    if (!before && after) haptic('success');
+    if (!before && after) {
+      haptic('success');
+      cheer();
+    }
     refresh();
   };
 
@@ -259,7 +266,7 @@ export default function TodayScreen() {
               </View>
             </View>
 
-            <MascotPerch id="energy" mood="happy">
+            <MascotPerch id="energy" mood="potter">
             <View style={styles.card}>
               <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
               <View style={styles.energyRow}>
@@ -280,7 +287,7 @@ export default function TodayScreen() {
             </View>
             </MascotPerch>
 
-            <MascotPerch id="progress" mood="happy">
+            <MascotPerch id="progress" mood="potter">
             <View style={[styles.card, styles.progressCard]}>
               <ProgressRing pct={pct} />
               <View style={{ flex: 1 }}>
@@ -303,7 +310,7 @@ export default function TodayScreen() {
             </ScrollView>
 
             {composing && (
-              <MascotPerch id="composer" mood="working" call>
+              <MascotPerch id="composer" mood="work" call>
                 <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, draftTime, setDraftTime, draftSteps, setDraftSteps, saveTask, onCancel: () => setComposing(false) }} />
               </MascotPerch>
             )}
@@ -320,7 +327,7 @@ export default function TodayScreen() {
                 <View style={{ gap: 10 }}>
                   {matched.map((t) => (
                     <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'sleeping' : 'working'}>
+                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'work'}>
                         <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
                       </MascotPerch>
                     </Reanimated.View>
@@ -335,7 +342,7 @@ export default function TodayScreen() {
                 <View style={{ gap: 10 }}>
                   {rest.map((t) => (
                     <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'sleeping' : 'working'}>
+                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'work'}>
                         <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
                       </MascotPerch>
                     </Reanimated.View>
