@@ -1,5 +1,6 @@
 import { useRef, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useSharedValue } from 'react-native-reanimated';
 import { Mascot } from './Mascot';
 import { MascotRegistryContext, PerchRegistry } from './registry';
 
@@ -11,8 +12,14 @@ import { MascotRegistryContext, PerchRegistry } from './registry';
  * the layer so only the character itself takes touches.
  */
 export function MascotProvider({ children }: { children: ReactNode }) {
+  // Owned here rather than per screen so the mascot can capture them once. See
+  // useMascotScroll for who writes them.
+  const scrollY = useSharedValue(0);
+  const scrollAt = useSharedValue(0);
+
   const registry = useRef<PerchRegistry>(null as unknown as PerchRegistry);
   if (!registry.current) registry.current = new PerchRegistry();
+  registry.current.attachScroll({ y: scrollY, changedAt: scrollAt });
 
   return (
     <MascotRegistryContext.Provider value={registry.current}>

@@ -39,8 +39,16 @@ import {
 const TAB_BAR_H = 62;
 /** How far the feet sink into the edge they stand on, so it reads as contact. */
 const SINK = 9;
-/** Position resync while parked, so the mascot rides its card as you scroll. */
-const FOLLOW_MS = 40;
+/**
+ * How often to check the container while parked.
+ *
+ * Far slower than it used to be, because this no longer does the following —
+ * the transform does, every frame. This only re-checks whether the container
+ * has moved for some other reason, and whether it is still on screen.
+ */
+const FOLLOW_MS = 250;
+/** The list must have been still this long before a measurement is worth using. */
+const SETTLED_MS = 120;
 /** How long the mascot beams after the user finishes something. */
 const CHEER_MS = 2800;
 
@@ -209,6 +217,21 @@ export function Mascot() {
   const squash = useSharedValue(1);
   /** The rise and fall of the gait. Walking is flat now, so this supplies it. */
   const bob = useSharedValue(0);
+  /**
+   * How far the list has scrolled since the mascot's container was measured.
+   *
+   * This is what keeps it on a card. `footY` holds the card's position as of
+   * the last measurement and `parkScroll` the scroll offset at that instant;
+   * the difference against the live offset is added in the transform, so the
+   * character moves in the same frame as the card rather than a poll behind it.
+   */
+  const parkScroll = useSharedValue(0);
+  /** 1 only while parked on a container, i.e. while the follow applies. */
+  const parkTracking = useSharedValue(0);
+  // Captured once: the provider owns these for the life of the tab tree.
+  const scrollLink = registry?.scrollLink ?? null;
+  const scrollY = scrollLink?.y;
+  const scrollAt = scrollLink?.changedAt;
   /** Sprite flipbook clock, counted in frames. */
   const clock = useSharedValue(0);
 
@@ -302,6 +325,12 @@ export function Mascot() {
       .onStart(() => {
         'worklet';
         dragging.value = 1;
+        // Take the scroll follow into the anchor before dropping it, or the
+        // mascot jumps out from under the finger the instant it is grabbed.
+        if (parkTracking.value) {
+          footY.value += scrollY ? parkScroll.value - scrollY.value : 0;
+          parkTracking.value = 0;
+        }
         // Whatever walk was under way loses the argument to the finger.
         cancelAnimation(footX);
         cancelAnimation(footY);
@@ -333,7 +362,7 @@ export function Mascot() {
       });
 
     return Gesture.Exclusive(drag, poke);
-  }, [beginDrag, endDrag, onTap, facing, footX, footY, squash, limits, dragging]);
+  }, [beginDrag, endDrag, onTap, facing, footX, footY, squash, limits, dragging, parkScroll, parkTracking, scrollY]);
 
   useEffect(() => {
     if (!registry || reduceMotion) return;
@@ -563,37 +592,52 @@ export function Mascot() {
     };
 
     /**
-     * Keep the mascot glued to its container while the user scrolls, holding
-     * the horizontal offset it chose on landing rather than snapping to centre.
+     * Park on a container: anchor to it once, then let the transform do the
+     * following.
      *
-     * Following a container is only right while it is still on screen. Scroll
-     * far enough and it leaves — so the mascot fades out, is marked lost, and
-     * the loop is woken to place it somewhere visible instead. If the user
-     * scrolls back before that lands, it simply fades in again where it was.
+     * The old version re-measured every 40ms and wrote the answer straight to
+     * the mascot's position. That is a poll well under the frame rate, feeding
+     * on an asynchronous measurement — so during a scroll the character trailed
+     * the card and then jumped to catch up. Now the card's position is measured
+     * once, the scroll offset at that instant is recorded alongside it, and the
+     * difference against the live offset is applied in the transform, on the UI
+     * thread, every frame.
+     *
+     * A slow tick remains, but only for the two things a scroll offset cannot
+     * tell us: whether the container has moved for some other reason (a task
+     * added above it, the keyboard), and whether it has left the screen. It
+     * re-measures only while the list is still, because a measurement taken
+     * mid-fling is stale before it arrives — applying one is precisely the jump
+     * this exists to remove.
      */
     const park = (perch: Perch, foot: { x: number; y: number; spot: PerchSpot }) => {
       lost = false;
       let offset: number | null = null;
-      // Null until the first tick, so parking always asserts visibility rather
-      // than assuming whatever the last animation happened to leave behind.
       let shown: boolean | null = null;
 
-      parked = setInterval(async () => {
-        const rect = await perch.measure();
-        // A finger beats the tracker, and so does a mascot that was just put
-        // down somewhere — snapping it back would undo the drag.
-        if (cancelled || parkPaused || held.current || dropped.current || !rect) return;
+      /** Re-anchor to wherever the container is now, without moving the mascot. */
+      const anchor = (rect: PerchRect) => {
         if (offset === null) offset = foot.x - (rect.x + rect.width / 2);
-        const y = footYFor(rect, foot.spot);
         footX.value = rect.x + rect.width / 2 + offset;
-        footY.value = y;
+        footY.value = footYFor(rect, foot.spot);
+        parkScroll.value = scrollY ? scrollY.value : 0;
+        parkTracking.value = 1;
+      };
 
-        // Visibility is a function of where the container currently is, not a
-        // flag some earlier step remembered to clear. Standing somewhere on
-        // screen means visible, every tick, which also heals a fade-out left
-        // behind by a superseded run of this effect.
+      void perch.measure().then((rect) => {
+        if (!cancelled && rect && !held.current && !dropped.current) anchor(rect);
+      });
+
+      parked = setInterval(async () => {
+        if (cancelled || parkPaused || held.current || dropped.current) return;
+
+        // Where the mascot actually is this instant, which is the anchor plus
+        // however far the list has moved since.
+        const followed =
+          footY.value + (scrollY ? parkScroll.value - scrollY.value : 0);
+
         const { top, bottom } = bounds.current;
-        const visible = y - BOX_H >= top && y <= bottom;
+        const visible = followed - BOX_H >= top && followed <= bottom;
         if (visible !== shown) {
           shown = visible;
           opacity.value = withTiming(visible ? 1 : 0, { duration: 200 });
@@ -604,12 +648,35 @@ export function Mascot() {
         } else if (visible) {
           lost = false;
         }
+
+        // Only worth re-measuring once the list has settled.
+        const still = !scrollAt || Date.now() - scrollAt.value > SETTLED_MS;
+        if (!still) return;
+        const rect = await perch.measure();
+        if (cancelled || parkPaused || held.current || dropped.current || !rect) return;
+        anchor(rect);
       }, FOLLOW_MS);
     };
 
     const unpark = () => {
       if (parked) clearInterval(parked);
       parked = null;
+      settlePosition();
+    };
+
+    /**
+     * Stop following the scroll, without moving.
+     *
+     * The follow lives in the transform, so simply switching it off would snap
+     * the mascot back by however far the list had scrolled since it parked.
+     * Folding the offset into the anchor first leaves it exactly where it is,
+     * which is what every caller wants: travel, a drag and a hop all move the
+     * character themselves from wherever it currently stands.
+     */
+    const settlePosition = () => {
+      if (!parkTracking.value) return;
+      footY.value += scrollY ? parkScroll.value - scrollY.value : 0;
+      parkTracking.value = 0;
     };
 
     /** A hop on the spot, with the position tracker held off for the arc. */
@@ -860,7 +927,20 @@ export function Mascot() {
       bob.value = 0;
       wake.current?.();
     };
-  }, [registry, reduceMotion, bob, facing, footX, footY, opacity, squash]);
+  }, [
+    registry,
+    reduceMotion,
+    bob,
+    facing,
+    footX,
+    footY,
+    opacity,
+    squash,
+    parkScroll,
+    parkTracking,
+    scrollY,
+    scrollAt,
+  ]);
 
   /* --- reduce motion -------------------------------------------------- */
 
@@ -888,6 +968,11 @@ export function Mascot() {
       footX.value = rect.x + rect.width / 2;
       footY.value =
         perch.spot === 'inside' ? rect.y + rect.height - SINK * 2 : rect.y + SINK;
+      // Anchor the same way the roaming loop does. Reduce Motion stops the
+      // mascot travelling; it does not mean it should judder down the screen
+      // behind the card it is sitting on.
+      parkScroll.value = scrollY ? scrollY.value : 0;
+      parkTracking.value = 1;
       opacity.value = 1;
       setClip(MOOD_CLIP[perch.mood]);
     };
@@ -901,23 +986,30 @@ export function Mascot() {
       unsubscribe();
       clearInterval(timer);
     };
-  }, [reduceMotion, registry, footX, footY, opacity]);
+  }, [reduceMotion, registry, footX, footY, opacity, parkScroll, parkTracking, scrollY]);
 
   /* --- transform ------------------------------------------------------ */
 
-  const boxStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [
-      { translateX: footX.value - BOX_W / 2 },
-      // Squash pivots on the feet, so compensate for scaling about the centre.
-      {
-        translateY:
-          footY.value - BOX_H + (BOX_H * (1 - squash.value)) / 2 + bob.value * 5,
-      },
-      { scaleX: facing.value * (2 - squash.value) },
-      { scaleY: squash.value },
-    ],
-  }));
+  const boxStyle = useAnimatedStyle(() => {
+    // The one thing here that has to be exact every frame: how far the list has
+    // moved under the mascot since its container was last measured.
+    const follow =
+      parkTracking.value && scrollY ? parkScroll.value - scrollY.value : 0;
+
+    return {
+      opacity: opacity.value,
+      transform: [
+        { translateX: footX.value - BOX_W / 2 },
+        // Squash pivots on the feet, so compensate for scaling about the centre.
+        {
+          translateY:
+            footY.value - BOX_H + (BOX_H * (1 - squash.value)) / 2 + bob.value * 5 + follow,
+        },
+        { scaleX: facing.value * (2 - squash.value) },
+        { scaleY: squash.value },
+      ],
+    };
+  });
 
   const hit = CLIPS[clip];
 

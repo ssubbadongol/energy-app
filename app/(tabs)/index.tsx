@@ -2,11 +2,11 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useFocusEffect } from 'expo-router';
 import { Check, ChevronDown, ChevronRight, Clock, Pencil, Plus, Settings, Sparkles, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, type GestureResponderEvent, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, type GestureResponderEvent, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, { LinearTransition, ReduceMotion, StretchInY, StretchOutY } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
-import { MascotPerch, useMascotCheer } from '@/components/mascot';
+import { MascotPerch, useMascotCheer, useMascotScroll } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { useCelebrate } from '@/components/sage/Celebration';
 import { haptic } from '@/components/primitives/usePressScale';
@@ -94,7 +94,9 @@ export default function TodayScreen() {
   const today = iso(new Date());
   const celebrate = useCelebrate();
   const cheer = useMascotCheer();
-  const scrollY = useRef(new Animated.Value(0)).current;
+  // One shared value drives the backdrop's parallax and keeps the mascot on
+  // its card, both on the UI thread. See useMascotScroll.
+  const { scrollY, onScroll } = useMascotScroll();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [greetName, setGreetName] = useState('');
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyKey>('mid');
@@ -216,11 +218,11 @@ export default function TodayScreen() {
         </View>
       )}
 
-      <Animated.ScrollView
+      <Reanimated.ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        onScroll={onScroll}
       >
         {calendarOpen ? (
           <CalendarView
@@ -369,7 +371,7 @@ export default function TodayScreen() {
             )}
           </>
         )}
-      </Animated.ScrollView>
+      </Reanimated.ScrollView>
     </SafeAreaView>
   );
 }

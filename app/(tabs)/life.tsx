@@ -1,9 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import { Bell, BellOff, Check, Minus, Pencil, Plus } from 'lucide-react-native';
 import React, { useCallback, useRef, useState } from 'react';
-import { Animated, type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MascotPerch, useMascotCheer } from '@/components/mascot';
+import { MascotPerch, useMascotCheer, useMascotScroll } from '@/components/mascot';
 import { SageBackground } from '@/components/sage/Background';
 import { useCelebrate } from '@/components/sage/Celebration';
 import {
@@ -53,7 +54,9 @@ export default function LifeScreen() {
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [windowTouched, setWindowTouched] = useState(false);
-  const scrollY = useRef(new Animated.Value(0)).current;
+  // One shared value drives the backdrop's parallax and keeps the mascot on
+  // its card, both on the UI thread. See useMascotScroll.
+  const { scrollY, onScroll } = useMascotScroll();
 
   const refresh = useCallback(() => setItems([...getLifeTasks()]), []);
 
@@ -168,11 +171,11 @@ export default function LifeScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <SageBackground scrollY={scrollY} />
-      <Animated.ScrollView
+      <Reanimated.ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        onScroll={onScroll}
       >
         {setup ? (
           <>
@@ -348,7 +351,7 @@ export default function LifeScreen() {
             })}
           </>
         )}
-      </Animated.ScrollView>
+      </Reanimated.ScrollView>
     </SafeAreaView>
   );
 }

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext } from 'react';
+import type { SharedValue } from 'react-native-reanimated';
 
 /**
  * What the mascot does while it is at a container.
@@ -50,6 +51,18 @@ export interface Perch {
 }
 
 /**
+ * The focused screen's scroll position, readable on the UI thread.
+ *
+ * `y` is the live offset and `changedAt` is when it last moved. The mascot
+ * needs both: the first to stay glued to a card every frame, the second to
+ * know when the list is still enough to be worth re-measuring.
+ */
+export interface ScrollLink {
+  y: SharedValue<number>;
+  changedAt: SharedValue<number>;
+}
+
+/**
  * The set of containers the mascot may hop between.
  *
  * Deliberately *not* React state: a screen mounting a dozen perches would
@@ -61,6 +74,7 @@ export class PerchRegistry {
   private perches = new Map<string, Perch>();
   private listeners = new Set<() => void>();
   private cheers = new Set<() => void>();
+  private scroll: ScrollLink | null = null;
   private flushing = false;
 
   add(perch: Perch): void {
@@ -78,6 +92,20 @@ export class PerchRegistry {
 
   get(id: string): Perch | undefined {
     return this.perches.get(id);
+  }
+
+  /**
+   * One pair of shared values, owned by the provider and written by whichever
+   * screen is focused. One pair rather than one per screen so the mascot can
+   * capture them once: a shared value that holds another shared value is not
+   * something to build a hot path on.
+   */
+  attachScroll(link: ScrollLink): void {
+    this.scroll = link;
+  }
+
+  get scrollLink(): ScrollLink | null {
+    return this.scroll;
   }
 
   /** The container currently asking for the mascot, if any. */

@@ -1,5 +1,11 @@
 import React from 'react';
-import { Animated, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 // Natural size of assets/background/bg-screen.png (853 × 1844).
 const IMG_ASPECT = 1844 / 853; // height / width
@@ -14,10 +20,15 @@ const PARALLAX = 64; // how far the photo drifts down over a full scroll
  *
  * Parallax: the image carries `PARALLAX` px of top overscan, and drifts DOWN by
  * that amount as the user scrolls (the mockup's effect). Because the drift is
- * absorbed by the overscan, there is never a gap. Driven on the JS thread
- * (useNativeDriver:false in the screens) so it also animates on web.
+ * absorbed by the overscan, there is never a gap.
+ *
+ * `scrollY` is a Reanimated shared value rather than an `Animated.Value` on
+ * purpose. The mascot has to sit on a card and stay there while the list moves
+ * under it, and it can only do that if the scroll position is readable on the
+ * UI thread — so the screens publish one shared value and this and the mascot
+ * both read it.
  */
-export function SageBackground({ scrollY }: { scrollY?: Animated.Value }) {
+export function SageBackground({ scrollY }: { scrollY?: SharedValue<number> }) {
   const { width: W, height: Hs } = useWindowDimensions();
 
   // Height = screen + overscan; width follows aspect. If that is narrower than
@@ -30,16 +41,25 @@ export function SageBackground({ scrollY }: { scrollY?: Animated.Value }) {
   }
   const overscan = Math.max(0, imgH - Hs);
 
-  const translateY = scrollY
-    ? scrollY.interpolate({ inputRange: [0, 420], outputRange: [0, overscan], extrapolate: 'clamp' })
-    : 0;
+  const drift = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: scrollY
+          ? interpolate(scrollY.value, [0, 420], [0, overscan], Extrapolation.CLAMP)
+          : 0,
+      },
+    ],
+  }));
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Animated.Image
         source={require('../../assets/background/bg-screen.png')}
         resizeMode="cover"
-        style={{ position: 'absolute', width: imgW, height: imgH, bottom: 0, left: (W - imgW) / 2, transform: [{ translateY }] }}
+        style={[
+          { position: 'absolute', width: imgW, height: imgH, bottom: 0, left: (W - imgW) / 2 },
+          drift,
+        ]}
       />
       <View style={styles.overlay} />
     </View>

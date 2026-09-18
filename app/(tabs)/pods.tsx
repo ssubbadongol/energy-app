@@ -27,7 +27,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { MascotPerch } from '@/components/mascot';
+import { MascotPerch, useMascotScroll } from '@/components/mascot';
+import Reanimated from 'react-native-reanimated';
 import { SageBackground } from '@/components/sage/Background';
 import { ProGate } from '@/components/pro/ProGate';
 import { useEntitlement } from '@/components/pro/EntitlementProvider';
@@ -207,12 +208,17 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
     [joining, style, duration, onJoined, refresh],
   );
 
+  const { onScroll } = useMascotScroll();
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <SageBackground />
-      <ScrollView
+      {/* Reported so the mascot stays on a room card while the list moves. */}
+      <Reanimated.ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -320,7 +326,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
             );
           })
         )}
-      </ScrollView>
+      </Reanimated.ScrollView>
 
       <PodRulesGate
         open={pendingTopic !== null}
