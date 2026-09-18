@@ -1,5 +1,5 @@
 /**
- * Planning a walk across the screen.
+ * Planning how the mascot gets from one place to another.
  *
  * Pure geometry, deliberately kept out of the component: the bug this exists to
  * fix was arithmetic, not animation. Travel used to be timed from distance
@@ -12,6 +12,9 @@
  * to fill that floor is not taken faster; it is taken the long way round, by
  * ambling off in the other direction first. So a walk always lasts long enough
  * to read as walking.
+ *
+ * Only the sideways part of a move is walked. Going up or down is a jump —
+ * there is nothing to walk along in that direction — which `planJump` sizes.
  */
 
 export interface Point {
@@ -102,4 +105,38 @@ export function planWalk(from: Point, to: Point, minX: number, maxX: number): Wa
   const hops = Math.max(1, Math.min(MAX_HOPS, Math.round(total / (WALK_SPEED * (HOP_MS / 1000)))));
 
   return { steps: resample(route, hops), durationMs: hops * HOP_MS, detoured };
+}
+
+
+export interface JumpPlan {
+  /** Where each hop lands, in order. */
+  steps: number[];
+  /** How high above the lower of its two ends each hop arcs. */
+  lift: number;
+  /** One hop, in ms. */
+  hopMs: number;
+  durationMs: number;
+}
+
+/** Above this far in one go, the climb is broken into more than one hop. */
+export const JUMP_SPAN = 190;
+export const MAX_JUMPS = 3;
+
+/**
+ * Size a jump between two heights.
+ *
+ * Short drops are one hop; a long one is split, because a single arc over half
+ * the screen reads as being thrown rather than jumping. Both the arc and the
+ * time grow with the climb, but with a ceiling — a hop to the next card and a
+ * hop across the screen should still look like the same animal.
+ */
+export function planJump(fromY: number, toY: number): JumpPlan {
+  const climb = Math.abs(toY - fromY);
+  const hops = Math.max(1, Math.min(MAX_JUMPS, Math.round(climb / JUMP_SPAN)));
+
+  const steps: number[] = [];
+  for (let i = 1; i <= hops; i++) steps.push(fromY + ((toY - fromY) * i) / hops);
+
+  const hopMs = 300 + Math.min(220, climb * 0.5);
+  return { steps, lift: 26 + Math.min(26, climb * 0.16), hopMs, durationMs: hops * hopMs };
 }

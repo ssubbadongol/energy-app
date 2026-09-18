@@ -91,6 +91,13 @@ export default function LifeScreen() {
 
   const toggleOn = async (id: string) => { await toggleLifeTaskEnabled(id); refreshAndReschedule(); };
   const toggleRemind = async (id: string) => { await toggleLifeTaskRemind(id); refreshAndReschedule(); };
+  /**
+   * Whether the routine form is actually being filled in. The card itself is
+   * always on screen in setup mode, and the mascot's laptop is meant to mean
+   * "you are writing something" rather than "this card exists".
+   */
+  const composingRoutine = !!editingId || draft.name.trim().length > 0;
+
   const tap = async (id: string, e?: GestureResponderEvent) => {
     const item = items.find((i) => i.id === id);
     if (item && e) {
@@ -174,7 +181,7 @@ export default function LifeScreen() {
               <Text style={[text.body, { marginTop: 6, maxWidth: 260 }]}>Pick which apply to you. Everything else stays off — you can change this any time.</Text>
             </View>
 
-            <MascotPerch id="setup-items" mood="work">
+            <MascotPerch id="setup-items" mood="idle">
             <View style={[styles.card, { paddingVertical: 8, paddingHorizontal: 16 }]}>
               {items.map((i, idx) => (
                 <View key={i.id} style={[styles.setupRow, idx === items.length - 1 && { borderBottomWidth: 0 }]}>
@@ -208,7 +215,11 @@ export default function LifeScreen() {
             </View>
             </MascotPerch>
 
-            <MascotPerch id="routine-composer" mood="work" call={!!editingId}>
+            <MascotPerch
+              id="routine-composer"
+              mood={composingRoutine ? 'work' : 'idle'}
+              call={composingRoutine}
+            >
             <View style={[styles.card, { marginTop: 14 }]}>
               <Text style={[text.labelFaint, { marginBottom: 12 }]}>{editingId ? 'Edit routine item' : 'Add your own'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -300,7 +311,7 @@ export default function LifeScreen() {
               const secItems = items.filter((i) => i.timeOfDay === s.key && i.enabled);
               if (secItems.length === 0) return null;
               return (
-                <MascotPerch key={s.key} id={`section-${s.key}`} mood="potter" style={{ marginBottom: 18 }}>
+                <MascotPerch key={s.key} id={`section-${s.key}`} mood="idle" style={{ marginBottom: 18 }}>
                   <View style={styles.sectionRule}>
                     <Text style={text.label}>{s.title}</Text>
                     <View style={styles.sectionLine} />

@@ -46,6 +46,8 @@ const SHEETS = {
   working: 0.64,
   held: 1,
   recover: 1,
+  idle: 1,
+  spin: 1,
 };
 
 const lumOf = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];

@@ -3,20 +3,20 @@ import { createContext, useCallback, useContext } from 'react';
 /**
  * What the mascot does while it is at a container.
  *
- * Named for the behaviour rather than the sprite, because the two are not one
- * to one: `potter` and `work` both show the laptop clip and differ only in how
- * long the mascot stays put before wandering off again.
+ * Named for the behaviour rather than the sprite. Most containers are `idle`:
+ * the mascot sits there and looks about, which is what a companion does nearly
+ * all of the time. The laptop is not a general-purpose "busy" pose — it means
+ * the user is composing something, and spending it anywhere else would make it
+ * stop meaning that.
  *
- *   potter  restless — a short pause, then off walking again. The default,
- *           and what "waiting for you to do something" looks like.
- *   work    settles in for a while. Tasks, composers, anything being worked on.
- *   rest    naps. Finished tasks, an empty day, a paused session.
+ *   idle  sits and looks around, occasionally chasing its tail. The default.
+ *   work  the laptop. Composers and editors only, while something is open.
+ *   rest  naps. Things that are already finished, and an empty day.
  *
- * `walking` is not a mood: it is travel between containers and pottering
- * around one. `happy` is not a mood either — it is reserved for finishing a
- * task, and nothing else in the app may spend it.
+ * `walking` is not a mood — it is how the mascot gets between containers.
+ * `happy` is not one either: it is reserved for finishing a task.
  */
-export type MascotMood = 'potter' | 'work' | 'rest';
+export type MascotMood = 'idle' | 'work' | 'rest';
 
 /** Where on a container the mascot stands. */
 export type PerchSpot =

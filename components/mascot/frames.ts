@@ -14,7 +14,15 @@
  */
 import type { ImageSourcePropType } from 'react-native';
 
-export type ClipName = 'walking' | 'working' | 'sleeping' | 'happy' | 'held' | 'recover';
+export type ClipName =
+  | 'idle'
+  | 'walking'
+  | 'working'
+  | 'sleeping'
+  | 'happy'
+  | 'spin'
+  | 'held'
+  | 'recover';
 
 export interface Clip {
   sources: ImageSourcePropType[];
@@ -99,6 +107,50 @@ export const CLIPS: Record<ClipName, Clip> = {
     height: 95,
     fps: 12,
     still: 4,
+  },
+
+  /**
+   * Sitting and looking about — front, left, right, up, down, a blink. The
+   * mascot's default: most of the time it should be doing this rather than
+   * walking somewhere.
+   *
+   * Slow on purpose. The frames are a head turning, and at any pace quicker
+   * than this it reads as a nervous twitch rather than idling.
+   */
+  idle: {
+    sources: [
+      require('../../assets/mascot/idle-0.png'),
+      require('../../assets/mascot/idle-1.png'),
+      require('../../assets/mascot/idle-2.png'),
+      require('../../assets/mascot/idle-3.png'),
+      require('../../assets/mascot/idle-4.png'),
+      require('../../assets/mascot/idle-5.png'),
+      require('../../assets/mascot/idle-6.png'),
+      require('../../assets/mascot/idle-7.png'),
+    ],
+    width: 75,
+    height: 88,
+    fps: 2.5,
+    still: 0,
+  },
+
+  /** Chasing its tail, for variety. A full turn takes about four fifths of a second. */
+  spin: {
+    sources: [
+      require('../../assets/mascot/spin-0.png'),
+      require('../../assets/mascot/spin-1.png'),
+      require('../../assets/mascot/spin-2.png'),
+      require('../../assets/mascot/spin-3.png'),
+      require('../../assets/mascot/spin-4.png'),
+      require('../../assets/mascot/spin-5.png'),
+      require('../../assets/mascot/spin-6.png'),
+      require('../../assets/mascot/spin-7.png'),
+      require('../../assets/mascot/spin-8.png'),
+    ],
+    width: 84,
+    height: 80,
+    fps: 11,
+    still: 0,
   },
 
   /**

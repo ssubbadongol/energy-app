@@ -266,7 +266,7 @@ export default function TodayScreen() {
               </View>
             </View>
 
-            <MascotPerch id="energy" mood="potter">
+            <MascotPerch id="energy" mood="idle">
             <View style={styles.card}>
               <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
               <View style={styles.energyRow}>
@@ -287,7 +287,7 @@ export default function TodayScreen() {
             </View>
             </MascotPerch>
 
-            <MascotPerch id="progress" mood="potter">
+            <MascotPerch id="progress" mood="idle">
             <View style={[styles.card, styles.progressCard]}>
               <ProgressRing pct={pct} />
               <View style={{ flex: 1 }}>
@@ -327,7 +327,7 @@ export default function TodayScreen() {
                 <View style={{ gap: 10 }}>
                   {matched.map((t) => (
                     <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'work'}>
+                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
                         <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
                       </MascotPerch>
                     </Reanimated.View>
@@ -342,7 +342,7 @@ export default function TodayScreen() {
                 <View style={{ gap: 10 }}>
                   {rest.map((t) => (
                     <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'work'}>
+                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
                         <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
                       </MascotPerch>
                     </Reanimated.View>

@@ -232,7 +232,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
         </View>
 
         {/* Matchmaking preferences */}
-        <MascotPerch id="pod-prefs" mood="potter">
+        <MascotPerch id="pod-prefs" mood="idle">
         <View style={styles.panel}>
           <Text style={text.label}>What&apos;s going on</Text>
           <View style={styles.chipWrap}>
@@ -285,7 +285,7 @@ function PodBrowser({ onJoined }: { onJoined: (m: { podId: string; alias: string
           pods.map((p) => {
             const full = p.memberCount >= POD_MAX_MEMBERS;
             return (
-              <MascotPerch key={p.id} id={`pod-${p.id}`} mood="potter">
+              <MascotPerch key={p.id} id={`pod-${p.id}`} mood="idle">
               <View style={styles.podCard}>
                 <View style={[styles.accent, { backgroundColor: SEAT_COLORS[p.topic.length % SEAT_COLORS.length] }]} />
                 <View style={styles.podTop}>
@@ -575,7 +575,7 @@ function PodRoom({
           thing here the mascot can stand on without walking over what people
           are saying to each other.
         */}
-        <MascotPerch id="pod-composer" mood="work">
+        <MascotPerch id="pod-composer" mood="idle">
         <View style={styles.footer}>
           <View style={styles.inputBar}>
             <TextInput

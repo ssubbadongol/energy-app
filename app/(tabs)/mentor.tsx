@@ -263,7 +263,7 @@ function MentorChat() {
             composer puts it beside the work instead, where the last thing it
             can cover is a message you have already read.
           */}
-          <MascotPerch id="mentor-composer" mood="work">
+          <MascotPerch id="mentor-composer" mood="idle">
           <View style={styles.footer}>
             {messages.length === 0 ? (
               <ScrollView

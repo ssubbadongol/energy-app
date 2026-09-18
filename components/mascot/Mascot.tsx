@@ -22,7 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useReduceMotion } from '@/theme/useMotion';
 import { BOX_H, BOX_W, CLIPS, CLIP_NAMES, type ClipName } from './frames';
-import { HOP_MS, planWalk } from './walk';
+import { HOP_MS, planJump, planWalk } from './walk';
 import {
   MascotRegistryContext,
   type MascotMood,
@@ -45,25 +45,31 @@ const FOLLOW_MS = 40;
 const CHEER_MS = 2800;
 
 /**
- * How long the mascot stays at a container, and how likely it is to wander off
- * around it rather than hold still, per mood.
+ * How long the mascot stays at a container, and how likely it is to wander
+ * about it rather than settle, per mood.
  *
- * `potter` is the default and is deliberately restless: a couple of seconds
- * standing, then almost always back on its feet. Most of what you see the
- * mascot do should be walking.
+ * Long stays on purpose. A companion that relocates every few seconds is not
+ * keeping you company, it is pacing — so the mascot spends most of a minute in
+ * one place, looking around, and only occasionally gets up.
  */
 const STAY: Record<MascotMood, { hold: [number, number]; wander: number }> = {
-  potter: { hold: [1800, 3600], wander: 0.92 },
-  work: { hold: [7000, 11000], wander: 0.4 },
-  rest: { hold: [8000, 13000], wander: 0.25 },
+  idle: { hold: [16000, 30000], wander: 0.18 },
+  work: { hold: [14000, 24000], wander: 0.1 },
+  rest: { hold: [20000, 34000], wander: 0.08 },
 };
 
-/** The sprite each mood holds while it is standing still. */
+/** The sprite each mood holds while it is settled. */
 const MOOD_CLIP: Record<MascotMood, ClipName> = {
-  potter: 'working',
+  idle: 'idle',
   work: 'working',
   rest: 'sleeping',
 };
+
+/** Chance that a spell of idling is broken up by a tail chase. */
+const SPIN_CHANCE = 0.3;
+/** Two or three turns of it, then back to looking around. */
+const SPIN_MIN = 1600;
+const SPIN_MAX = 2600;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -171,7 +177,7 @@ export function Mascot() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
-  const [clip, setClip] = useState<ClipName>('working');
+  const [clip, setClip] = useState<ClipName>('idle');
 
   /** Foot position in window coordinates — the sprite box's bottom centre. */
   const footX = useSharedValue(screenW / 2);
@@ -181,6 +187,8 @@ export function Mascot() {
   const facing = useSharedValue(1);
   /** Vertical scale; <1 on landing, >1 on take-off. Pivots on the feet. */
   const squash = useSharedValue(1);
+  /** The rise and fall of the gait. Walking is flat now, so this supplies it. */
+  const bob = useSharedValue(0);
   /** Sprite flipbook clock, counted in frames. */
   const clock = useSharedValue(0);
 
@@ -221,7 +229,7 @@ export function Mascot() {
   /** True while the put-down animation is still playing itself out. */
   const recovering = useRef(false);
   /** The showing clip, readable from the loop without re-running it. */
-  const clipRef = useRef<ClipName>('working');
+  const clipRef = useRef<ClipName>('idle');
   clipRef.current = clip;
   const wake = useRef<(() => void) | null>(null);
 
@@ -404,52 +412,38 @@ export function Mascot() {
     };
 
     /**
-     * Walk to a point. The route, pace and hop count come from `planWalk`;
-     * everything here is just driving the shared values along it.
+     * Walk along the floor to an x, feet down the whole way.
+     *
+     * Every move used to be a string of arcs, so the mascot bounced everywhere
+     * it went. Going sideways is walking: the position moves flat, and the
+     * only rise and fall is the gait itself, which `bob` supplies.
      */
-    const travelTo = async (to: { x: number; y: number }) => {
+    const walkToX = async (toX: number) => {
       const { width } = bounds.current;
+      // The rise and fall of the gait, for feet that are on the ground. A jump
+      // has its own arc and must not have this on top of it.
+      bob.value = withRepeat(
+        withSequence(
+          withTiming(-1, { duration: HOP_MS / 2, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: HOP_MS / 2, easing: Easing.in(Easing.quad) }),
+        ),
+        -1,
+        false,
+      );
       const half = BOX_W / 2 + 6;
       const from = { x: footX.value, y: footY.value };
-      const { steps, durationMs } = planWalk(from, to, half, width - half);
+      const { steps, durationMs } = planWalk(from, { x: toX, y: from.y }, half, width - half);
 
       const firstDx = steps[0].x - from.x;
       if (Math.abs(firstDx) > 8) facing.value = withTiming(firstDx > 0 ? 1 : -1, { duration: 150 });
 
-      const lift = 22 + Math.min(16, (durationMs / steps.length) * 0.05);
-
+      setClip('walking');
       footX.value = withSequence(
         ...steps.map((p) => withTiming(p.x, { duration: HOP_MS, easing: Easing.linear })),
       );
-      footY.value = withSequence(
-        ...steps.flatMap((p, i) => {
-          const start = i === 0 ? from.y : steps[i - 1].y;
-          return [
-            withTiming(Math.min(start, p.y) - lift, {
-              duration: HOP_MS / 2,
-              easing: Easing.out(Easing.quad),
-            }),
-            withTiming(p.y, { duration: HOP_MS / 2, easing: Easing.in(Easing.quad) }),
-          ];
-        }),
-      );
-      // Each hop opens with the squash from the previous landing and rolls on
-      // into the next take-off's stretch, so a run reads as one motion.
-      squash.value = withSequence(
-        ...steps.flatMap(() => [
-          withTiming(0.9, { duration: HOP_MS * 0.12 }),
-          withTiming(1.06, { duration: HOP_MS * 0.23 }),
-          withTiming(1, { duration: HOP_MS * 0.65 }),
-        ]),
-        withTiming(0.88, { duration: 70 }),
-        withTiming(1.04, { duration: 90 }),
-        withTiming(1, { duration: 110 }),
-      );
 
-      setClip('walking');
-
-      // Turn at each waypoint as it is reached, so the return leg of a detour
-      // is not moonwalked.
+      // Turn at each waypoint as it is reached, so a detour's return leg is not
+      // walked backwards.
       const turns: ReturnType<typeof setTimeout>[] = [];
       for (let i = 1; i < steps.length; i++) {
         const dx = steps[i].x - steps[i - 1].x;
@@ -462,8 +456,70 @@ export function Mascot() {
         );
       }
 
-      await rest(durationMs + 150);
+      await rest(durationMs + 120);
       turns.forEach(clearTimeout);
+      cancelAnimation(bob);
+      bob.value = withTiming(0, { duration: 140 });
+    };
+
+    /**
+     * Jump to a y. Going up or down between two cards is a hop, not a walk —
+     * the mascot has nothing to walk along in that direction.
+     */
+    const jumpToY = async (toY: number) => {
+      const fromY = footY.value;
+      const { steps: ys, lift, hopMs: ms, durationMs } = planJump(fromY, toY);
+
+      setClip('walking');
+      footY.value = withSequence(
+        ...ys.flatMap((y, i) => {
+          const from = i === 0 ? fromY : ys[i - 1];
+          return [
+            withTiming(Math.min(from, y) - lift, {
+              duration: ms / 2,
+              easing: Easing.out(Easing.quad),
+            }),
+            withTiming(y, { duration: ms / 2, easing: Easing.in(Easing.quad) }),
+          ];
+        }),
+      );
+      squash.value = withSequence(
+        ...ys.flatMap(() => [
+          withTiming(1.07, { duration: ms * 0.25 }),
+          withTiming(1, { duration: ms * 0.45 }),
+          withTiming(0.9, { duration: ms * 0.16 }),
+          withTiming(1, { duration: ms * 0.14 }),
+        ]),
+      );
+
+      await rest(durationMs + 120);
+    };
+
+    /**
+     * Get to a point: walk the sideways part, then jump the up-and-down part.
+     *
+     * Splitting them is the whole point — it is what makes a move across a row
+     * of cards read as a stroll and a move between two stacked ones read as a
+     * hop, rather than every move being the same bouncing arc.
+     */
+    const travelTo = async (to: { x: number; y: number }) => {
+      const dx = to.x - footX.value;
+      const dy = to.y - footY.value;
+
+      if (Math.abs(dx) > 10) {
+        await walkToX(to.x);
+        if (cancelled || held.current) return;
+      }
+      if (Math.abs(to.y - footY.value) > 8) {
+        await jumpToY(to.y);
+        if (cancelled || held.current) return;
+      }
+      // Neither leg was worth taking on its own, but we are still not there.
+      if (Math.abs(dx) <= 10 && Math.abs(dy) <= 8) {
+        footX.value = withTiming(to.x, { duration: 200 });
+        footY.value = withTiming(to.y, { duration: 200 });
+        await rest(220);
+      }
     };
 
     /** Drop in from off screen, for the first appearance and after a tab change. */
@@ -592,7 +648,7 @@ export function Mascot() {
      * Hold a container's mood for a stretch, breaking out early for a tap, for
      * the container scrolling away, or for another container calling.
      */
-    const settle = async (mood: MascotMood, ms: number) => {
+    const settle = async (perchId: string, mood: MascotMood, ms: number) => {
       // Not while it is in the air or still getting up: a stint beginning
       // underneath a drag would stamp the mood clip over the carry animation.
       const wear = () => {
@@ -622,12 +678,36 @@ export function Mascot() {
           remaining -= 700;
           continue;
         }
+        // Break a long sit up with a tail chase now and then, so idling has
+        // something in it besides looking left and right. Sleeping in one
+        // stretch rather than polling: the slice is short only when a spin is
+        // actually due.
+        const spinDue =
+          mood === 'idle' &&
+          remaining > SPIN_MAX * 2 &&
+          Math.random() < SPIN_CHANCE;
+
         const startedAt = Date.now();
-        await sleep(remaining);
-        remaining -= Date.now() - startedAt;
-        // Woken early means the registry changed. If that was a composer asking
-        // for the mascot, go now rather than sitting out the rest of the stint.
-        if (remaining > 400 && registry.caller()) return;
+        await sleep(spinDue ? rand(4000, 9000) : remaining);
+        const slept = Date.now() - startedAt;
+        remaining -= slept;
+
+        // A wait that ended early ended because something rang the bell. Deal
+        // with that before anything else: a composer wants the mascot, or the
+        // container underfoot has gone, which is what changing tabs looks like
+        // from in here — and why it used to sit on the new screen for a few
+        // seconds before noticing it did not belong there.
+        if (cancelled || lost) return;
+        if (registry.caller()) return;
+        if (!registry.get(perchId)) return;
+
+        if (spinDue && !held.current && !recovering.current) {
+          setClip('spin');
+          const spun = Date.now();
+          await rest(rand(SPIN_MIN, SPIN_MAX));
+          remaining -= Date.now() - spun;
+          wear();
+        }
       }
     };
 
@@ -636,7 +716,7 @@ export function Mascot() {
      * where the walking clip gets to be an idle rather than only a commute.
      */
     const wanderAround = async (perch: Perch, mood: MascotMood) => {
-      const steps = mood === 'potter' ? 3 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 2);
+      const steps = 1 + Math.floor(Math.random() * 2);
       let landed: { x: number; y: number; spot: PerchSpot } | null = null;
       for (let i = 0; i < steps && !cancelled && !lost; i++) {
         const rect = await perch.measure();
@@ -717,7 +797,7 @@ export function Mascot() {
         const stay = STAY[current.mood];
 
         park(current, foot);
-        await settle(current.mood, rand(stay.hold[0], stay.hold[1]));
+        await settle(current.id, current.mood, rand(stay.hold[0], stay.hold[1]));
         unpark();
         dropped.current = false;
         if (cancelled) return;
@@ -733,7 +813,7 @@ export function Mascot() {
           if (cancelled) return;
           if (landed && !lost) {
             park(current, landed);
-            await settle(current.mood, rand(stay.hold[0] * 0.6, stay.hold[1] * 0.7));
+            await settle(current.id, current.mood, rand(stay.hold[0] * 0.6, stay.hold[1] * 0.7));
             unpark();
             dropped.current = false;
             await finishRecovering();
@@ -756,9 +836,11 @@ export function Mascot() {
       unpark();
       unsubscribe();
       unsubscribeCheer();
+      cancelAnimation(bob);
+      bob.value = 0;
       wake.current?.();
     };
-  }, [registry, reduceMotion, facing, footX, footY, opacity, squash]);
+  }, [registry, reduceMotion, bob, facing, footX, footY, opacity, squash]);
 
   /* --- reduce motion -------------------------------------------------- */
 
@@ -808,7 +890,10 @@ export function Mascot() {
     transform: [
       { translateX: footX.value - BOX_W / 2 },
       // Squash pivots on the feet, so compensate for scaling about the centre.
-      { translateY: footY.value - BOX_H + (BOX_H * (1 - squash.value)) / 2 },
+      {
+        translateY:
+          footY.value - BOX_H + (BOX_H * (1 - squash.value)) / 2 + bob.value * 5,
+      },
       { scaleX: facing.value * (2 - squash.value) },
       { scaleY: squash.value },
     ],
