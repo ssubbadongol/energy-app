@@ -48,6 +48,9 @@ const SHEETS = {
   recover: 1,
   idle: 1,
   spin: 1,
+  reading: 1,
+  phone: 1,
+  lifting: 1,
 };
 
 const lumOf = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
@@ -113,6 +116,58 @@ function runsOf(filled) {
 }
 
 /**
+ * Turn raw column runs into one run per frame.
+ *
+ * Column runs are not quite frames. A sparkle drawn clear of the character
+ * becomes a run of its own — a sliver a tenth the width of a frame — and two
+ * frames whose accent marks reach towards each other become a single run twice
+ * the normal width. Both happen in hand-drawn sheets and neither is something
+ * the sheet's author should have to think about.
+ *
+ * So: a run far narrower than the rest is a stray mark, and belongs to the
+ * frame it is nearest; a run far wider than the rest is frames that have run
+ * together, and is divided evenly. Everything is measured against the median
+ * run, so the rule needs no notion of how big a frame is meant to be.
+ */
+function tidyRuns(runs) {
+  if (runs.length < 3) return runs;
+
+  const widths = runs.map(([a, b]) => b - a + 1).sort((p, q) => p - q);
+  const median = widths[widths.length >> 1];
+
+  // Fold strays into whichever neighbour is closer.
+  const kept = [];
+  for (const run of runs) {
+    if (run[1] - run[0] + 1 >= median * 0.4) {
+      kept.push([...run]);
+      continue;
+    }
+    const prev = kept[kept.length - 1];
+    const next = runs[runs.indexOf(run) + 1];
+    const toPrev = prev ? run[0] - prev[1] : Infinity;
+    const toNext = next ? next[0] - run[1] : Infinity;
+    if (toPrev <= toNext && prev) prev[1] = run[1];
+    else if (next) next[0] = Math.min(next[0], run[0]);
+    else if (prev) prev[1] = run[1];
+  }
+
+  // Divide any run that is really several frames touching.
+  const out = [];
+  for (const [a, b] of kept) {
+    const n = Math.max(1, Math.round((b - a + 1) / median));
+    if (n === 1) {
+      out.push([a, b]);
+      continue;
+    }
+    const step = (b - a + 1) / n;
+    for (let i = 0; i < n; i++) {
+      out.push([Math.round(a + i * step), Math.round(a + (i + 1) * step) - 1]);
+    }
+  }
+  return out;
+}
+
+/**
  * Cut the sheet into frames, reading order.
  *
  * Sheets are not all one strip: a longer animation is laid out as a grid, so
@@ -135,7 +190,7 @@ function findFrames(alpha, W, H) {
     for (let x = 0; x < W; x++) {
       for (let y = by0; y <= by1; y++) if (alpha[y * W + x] > 8) { colFilled[x] = true; break; }
     }
-    for (const [x0, x1] of runsOf(colFilled)) {
+    for (const [x0, x1] of tidyRuns(runsOf(colFilled))) {
       frames.push({ x0, x1, top: by0, bottom: by1 });
     }
   }
@@ -174,7 +229,13 @@ function downscale(src, sw, sh, dw, dh) {
 fs.mkdirSync(OUT, { recursive: true });
 // A re-cut of a sheet with fewer frames than last time must not leave the
 // extras behind for frames.ts to pick up.
-const cut = new RegExp(`^(${Object.keys(SHEETS).join('|')})-\d+\.png$`);
+// Built with RegExp rather than a literal so the sheet list stays the single
+// source of truth. Note the doubled backslashes: inside a template literal a
+// lone \d collapses to a plain d, which quietly made this match nothing.
+// Built with RegExp so the sheet list stays the single source of truth. The
+// backslashes are doubled because inside a template literal a lone \d
+// collapses to a plain d — which quietly made this sweep match nothing at all.
+const cut = new RegExp(`^(${Object.keys(SHEETS).join('|')})-\\d+\\.png$`);
 for (const f of fs.readdirSync(OUT)) {
   if (cut.test(f)) fs.unlinkSync(path.join(OUT, f));
 }

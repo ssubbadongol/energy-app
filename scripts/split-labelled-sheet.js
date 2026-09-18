@@ -12,6 +12,11 @@
  * fraction of the height. So the sheet is split into bands of rows that contain
  * anything, and only the tall ones are kept — each written out as its own
  * strip, in order, for `cut-mascot-sprites.js` to treat like any other sheet.
+ *
+ * A heading whose pill happens to touch the frames below it does not get its
+ * own band, so each kept band is also trimmed from the top while its rows are
+ * narrow: a row of frames spans most of the sheet's width, and a heading sits
+ * in one corner.
  */
 const fs = require('fs');
 const { PNG } = require('pngjs');
@@ -26,6 +31,18 @@ if (!inPath || !outPaths.length) {
 const CHARACTER_SHARE = 0.55;
 /** Paper kept around each strip, so the cutter's own padding has room. */
 const MARGIN = 8;
+/**
+ * A heading is a solid pill of colour, so its rows contain one long unbroken
+ * run of ink. The top rows of artwork are accent marks — a few thin strokes
+ * scattered across the sheet — so no run in them comes close to this.
+ *
+ * Measuring the *span* from first to last ink instead does not work: one row
+ * can hold the pill and a stray mark near the far edge, which makes a heading
+ * row look as wide as a row of frames.
+ */
+const HEADING_RUN = 0.06;
+/** Only ever trimmed from the top of a band, and never more than this of it. */
+const TRIM_LIMIT = 0.35;
 
 const png = PNG.sync.read(fs.readFileSync(inPath));
 const { width: W, height: H, data } = png;
@@ -65,8 +82,34 @@ if (kept.length !== outPaths.length) {
   process.exit(1);
 }
 
-kept.forEach(([a, b], i) => {
-  const top = Math.max(0, a - MARGIN);
+/** The longest unbroken stretch of ink in a row. */
+function longestRun(y) {
+  let best = 0;
+  let run = 0;
+  for (let x = 0; x < W; x++) {
+    if (isPaper(x, y)) run = 0;
+    else if (++run > best) best = run;
+  }
+  return best;
+}
+
+/** How far into a band the artwork starts, skipping a heading stuck to it. */
+function artStartsAt(a, b) {
+  const limit = a + (b - a) * TRIM_LIMIT;
+  for (let y = a; y <= b; y++) {
+    if (longestRun(y) < W * HEADING_RUN) return y;
+    if (y > limit) return a;
+  }
+  return a;
+}
+
+kept.forEach(([band0, b], i) => {
+  const a = artStartsAt(band0, b);
+  const trimmed = a !== band0;
+  if (trimmed) console.log(`  (trimmed a heading off rows ${band0}-${a - 1})`);
+  // Margin above is paper to give the cutter room — but not when a heading was
+  // just cut off, or it would put the heading straight back.
+  const top = trimmed ? a : Math.max(0, a - MARGIN);
   const bottom = Math.min(H - 1, b + MARGIN);
   const h = bottom - top + 1;
   const out = new PNG({ width: W, height: h });

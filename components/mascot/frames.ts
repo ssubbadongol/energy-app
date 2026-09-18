@@ -22,7 +22,10 @@ export type ClipName =
   | 'happy'
   | 'spin'
   | 'held'
-  | 'recover';
+  | 'recover'
+  | 'reading'
+  | 'phone'
+  | 'lifting';
 
 export interface Clip {
   sources: ImageSourcePropType[];
@@ -153,6 +156,62 @@ export const CLIPS: Record<ClipName, Clip> = {
     still: 0,
   },
 
+  /* ---------------------------------------------------------------- *
+   * Things to do on a break.
+   *
+   * These belong to the Pomodoro room and nowhere else — see BREAK_CLIPS
+   * below. One of them is picked at random per break, so a break has
+   * something in it besides the mascot pacing about.
+   * ---------------------------------------------------------------- */
+
+  /** Reading, with the odd page turn and a very contented face. */
+  reading: {
+    sources: [
+      require('../../assets/mascot/reading-0.png'),
+      require('../../assets/mascot/reading-1.png'),
+      require('../../assets/mascot/reading-2.png'),
+      require('../../assets/mascot/reading-3.png'),
+      require('../../assets/mascot/reading-4.png'),
+      require('../../assets/mascot/reading-5.png'),
+    ],
+    width: 79,
+    height: 77,
+    fps: 2.5,
+    still: 0,
+  },
+
+  /** Scrolling, which is what a break usually actually looks like. */
+  phone: {
+    sources: [
+      require('../../assets/mascot/phone-0.png'),
+      require('../../assets/mascot/phone-1.png'),
+      require('../../assets/mascot/phone-2.png'),
+      require('../../assets/mascot/phone-3.png'),
+      require('../../assets/mascot/phone-4.png'),
+      require('../../assets/mascot/phone-5.png'),
+    ],
+    width: 82,
+    height: 73,
+    fps: 3,
+    still: 0,
+  },
+
+  /** Curling a pair of dumbbells, with great seriousness. */
+  lifting: {
+    sources: [
+      require('../../assets/mascot/lifting-0.png'),
+      require('../../assets/mascot/lifting-1.png'),
+      require('../../assets/mascot/lifting-2.png'),
+      require('../../assets/mascot/lifting-3.png'),
+      require('../../assets/mascot/lifting-4.png'),
+      require('../../assets/mascot/lifting-5.png'),
+    ],
+    width: 76,
+    height: 82,
+    fps: 4.5,
+    still: 3,
+  },
+
   /**
    * Dangling from a finger, squirming. Loops for as long as the user holds on.
    *
@@ -192,6 +251,16 @@ export const CLIPS: Record<ClipName, Clip> = {
 };
 
 export const CLIP_NAMES = Object.keys(CLIPS) as ClipName[];
+
+/**
+ * The things the mascot does on a Pomodoro break, one picked at random per
+ * break.
+ *
+ * Named here rather than inline so the rule is stated once: these play in the
+ * room on the Pomodoro tab and nowhere else. The mascot that roams the other
+ * tabs mounts its own list, which does not include them.
+ */
+export const BREAK_CLIPS: ClipName[] = ['reading', 'phone', 'lifting'];
 
 /**
  * The mascot is laid out inside one box big enough for every clip, with each

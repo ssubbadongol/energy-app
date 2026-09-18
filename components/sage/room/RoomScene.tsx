@@ -26,7 +26,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { font } from '@/theme/sage';
 import { useMotion } from '@/theme/useMotion';
-import { BOX_H, BOX_W, CLIPS, type ClipName } from '../../mascot/frames';
+import { BOX_H, BOX_W, BREAK_CLIPS, CLIPS, type ClipName } from '../../mascot/frames';
 import { Room } from './Room';
 import type { RoomLayout } from './layout';
 import { room } from './palette';
@@ -61,8 +61,20 @@ const CLIP_FOR: Record<Exclude<MascotPhase, 'resting'>, ClipName> = {
   complete: 'happy',
 };
 
-/** The clips the room shows — not the ones that belong to being carried. */
-const SCENE_CLIPS: ClipName[] = ['idle', 'walking', 'working', 'sleeping', 'happy', 'spin'];
+/**
+ * The clips the room shows. Not the ones that belong to being picked up, which
+ * only the roaming mascot can be; and the break activities are here and only
+ * here, because a break is the only time there is to do one.
+ */
+const SCENE_CLIPS: ClipName[] = [
+  'idle',
+  'walking',
+  'working',
+  'sleeping',
+  'happy',
+  'spin',
+  ...BREAK_CLIPS,
+];
 
 /** The mascot's height, in viewBox units, measured on `walking`. */
 const MASCOT_VB_H = 62;
@@ -178,7 +190,11 @@ const Occupant = memo(function Occupant({
       cancelAnimation(x);
       x.value = 0;
       facing.value = 1;
-      setClip(phase === 'resting' ? 'idle' : CLIP_FOR[phase]);
+      setClip(
+        phase === 'resting'
+          ? BREAK_CLIPS[Math.floor(Math.random() * BREAK_CLIPS.length)]
+          : CLIP_FOR[phase],
+      );
       return;
     }
 
@@ -195,9 +211,26 @@ const Occupant = memo(function Occupant({
       };
     }
 
-    // A break: up on its feet and pottering about the rug, with the odd sit.
+    /*
+     * A break. The mascot picks one thing to do — read, scroll, or curl a pair
+     * of dumbbells — and does that for the whole break. One per break, chosen
+     * when the break starts: cycling through all three would turn five minutes
+     * off into a showreel.
+     *
+     * It gets up and moves along the rug now and then, then goes back to the
+     * same thing, which is what makes it look like someone spending a break
+     * rather than a looping sprite.
+     */
+    const doing = BREAK_CLIPS[Math.floor(Math.random() * BREAK_CLIPS.length)];
     let at = 0;
-    const pace = () => {
+
+    const resume = () => {
+      if (!alive) return;
+      setClip(doing);
+      timer = setTimeout(shift, rand(9000, 16000));
+    };
+
+    const shift = () => {
       if (!alive) return;
       const to = rand(-roamL, roamR);
       const ms = 700 + Math.abs(to - at) * 13;
@@ -205,15 +238,12 @@ const Occupant = memo(function Occupant({
       setClip('walking');
       x.value = withTiming(to, { duration: ms, easing: Easing.inOut(Easing.quad) });
       at = to;
-      timer = setTimeout(() => {
-        if (!alive) return;
-        setClip(Math.random() < 0.3 ? 'spin' : 'idle');
-        timer = setTimeout(pace, rand(1800, 3600));
-      }, ms);
+      timer = setTimeout(resume, ms + 200);
     };
 
-    timer = setTimeout(pace, 500);
+    // Stands up, wanders over, and settles into it.
     setClip('idle');
+    timer = setTimeout(shift, 700);
 
     return () => {
       alive = false;

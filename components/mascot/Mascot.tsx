@@ -21,7 +21,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { useReduceMotion } from '@/theme/useMotion';
-import { BOX_H, BOX_W, CLIPS, CLIP_NAMES, type ClipName } from './frames';
+import { BOX_H, BOX_W, CLIPS, type ClipName } from './frames';
 import { HOP_MS, planJump, planWalk } from './walk';
 import {
   MascotRegistryContext,
@@ -70,6 +70,26 @@ const SPIN_CHANCE = 0.3;
 /** Two or three turns of it, then back to looking around. */
 const SPIN_MIN = 1600;
 const SPIN_MAX = 2600;
+
+/**
+ * Every clip this mascot can show.
+ *
+ * Listed rather than taken from the sheet set, because not every clip belongs
+ * out here: the break activities — reading, scrolling, lifting — are things the
+ * mascot does in its room on the Pomodoro tab, and mounting them anywhere else
+ * would both load frames nobody sees and make it possible to show one by
+ * mistake.
+ */
+const ROAM_CLIPS: ClipName[] = [
+  'idle',
+  'walking',
+  'working',
+  'sleeping',
+  'happy',
+  'spin',
+  'held',
+  'recover',
+];
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -905,7 +925,7 @@ export function Mascot() {
 
   return (
     <Animated.View pointerEvents="box-none" style={[styles.box, boxStyle]}>
-      {CLIP_NAMES.map((name) => (
+      {ROAM_CLIPS.map((name) => (
         <ClipLayer key={name} name={name} visible={name === clip} clock={clock} />
       ))}
       {/* Sized to the clip that is actually showing, so the mascot never
