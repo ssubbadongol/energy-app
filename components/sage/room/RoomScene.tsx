@@ -1,19 +1,16 @@
 /**
- * The mascot's room, and the clock it lives under.
+ * The mascot's room, as the whole Pomodoro tab.
  *
- * Tall rather than wide: it is somewhere the mascot lives, and a room reads as
- * a room when you can see the wall meet the floor. The scene owns that space at
- * a fixed aspect ratio, so nothing in here can reflow the screen around it.
+ * This fills the screen and everything else on that tab is drawn over it —
+ * there is no card, and the app's usual paper-and-leaves backdrop is not used
+ * here at all. A room you are looking into is not a widget on a page.
  *
- * The timer is the clock on the wall. That is a deliberate change from the
- * stage taking only a `phase`: the clock is the room's own way of telling you
- * how long is left, and it cannot do that without the numbers. Everything else
- * about the timer — the phase machine, the rounds, the controls — still stays
- * on the Pomodoro screen.
+ * The timer is the clock on the wall, which is why the scene takes the numbers
+ * rather than only a `phase`. Everything else about the timer — the phase
+ * machine, the rounds, the controls — stays on the Pomodoro screen.
  *
  * What is in the room comes from a `RoomLayout`, which is plain data. Passing a
- * different one furnishes it differently, which is the seam a shop hangs off;
- * see room/layout.ts.
+ * different one furnishes it differently; that is the seam a shop hangs off.
  */
 import { memo, useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
@@ -27,12 +24,14 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import { curve, font, radius, sage } from '@/theme/sage';
+import { font } from '@/theme/sage';
 import { useMotion } from '@/theme/useMotion';
-import { BOX_H, BOX_W, CLIPS, type ClipName } from '../mascot/frames';
-import { Motes, Room } from './room/Room';
-import type { RoomLayout } from './room/layout';
-import { CLOCK_FACE, ROAM, STAND, VB_H, VB_W } from './room/slots';
+import { BOX_H, BOX_W, CLIPS, type ClipName } from '../../mascot/frames';
+import { Room } from './Room';
+import type { RoomLayout } from './layout';
+import { room } from './palette';
+import { DEFAULT_LAYOUT } from './layout';
+import { project, ROAM, SLOTS, STAND } from './slots';
 
 /**
  * What the timer is doing, in the only terms the mascot needs.
@@ -45,29 +44,28 @@ export type MascotPhase = 'idle' | 'focusing' | 'resting' | 'complete';
 
 interface Props {
   phase: MascotPhase;
-  /** What the wall clock shows. */
+  /** What the wall clock reads. */
   timeText: string;
   /** 1 at the start of a phase, 0 when it runs out. Drains the clock's rim. */
   progress: number;
   /** Counts seconds while the timer runs; moves the clock's second hand. */
   tick: number;
-  /** Spoken for the clock, which is the one part of the room that is content. */
+  /** Spoken for the clock, the one part of the room that is content. */
   timeLabel: string;
   layout?: RoomLayout;
 }
 
-/** What the mascot is doing in each phase. */
 const CLIP_FOR: Record<Exclude<MascotPhase, 'resting'>, ClipName> = {
   idle: 'idle',
   focusing: 'working',
   complete: 'happy',
 };
 
-/** The clips the room ever shows — not the ones that belong to being carried. */
-const STAGE_CLIPS: ClipName[] = ['idle', 'walking', 'working', 'sleeping', 'happy', 'spin'];
+/** The clips the room shows — not the ones that belong to being carried. */
+const SCENE_CLIPS: ClipName[] = ['idle', 'walking', 'working', 'sleeping', 'happy', 'spin'];
 
-/** The mascot's height as a fraction of the room, measured on `walking`. */
-const MASCOT_SCALE = 0.17;
+/** The mascot's height, in viewBox units, measured on `walking`. */
+const MASCOT_VB_H = 62;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -130,8 +128,8 @@ function ClipLayer({
  * ------------------------------------------------------------------ */
 
 const Occupant = memo(function Occupant({
-  phase, width, height,
-}: { phase: MascotPhase; width: number; height: number }) {
+  phase, stand, scale: unit,
+}: { phase: MascotPhase; stand: { x: number; y: number }; scale: number }) {
   const motion = useMotion();
   const [clip, setClip] = useState<ClipName>('idle');
 
@@ -140,9 +138,9 @@ const Occupant = memo(function Occupant({
   const bob = useSharedValue(0);
   const clock = useSharedValue(0);
 
-  const scale = (height * MASCOT_SCALE) / CLIPS.walking.height;
-  const roamL = width * ROAM.left;
-  const roamR = width * ROAM.right;
+  const scale = (MASCOT_VB_H * unit) / CLIPS.walking.height;
+  const roamL = ROAM.left * unit;
+  const roamR = ROAM.right * unit;
 
   useEffect(() => {
     const { sources, fps, still, loop } = CLIPS[clip];
@@ -225,8 +223,8 @@ const Occupant = memo(function Occupant({
 
   const boxW = BOX_W * scale;
   const boxH = BOX_H * scale;
-  const left = width * STAND.x - boxW / 2;
-  const top = height * STAND.y - boxH;
+  const left = stand.x - boxW / 2;
+  const top = stand.y - boxH;
 
   const body = useAnimatedStyle(() => ({
     transform: [
@@ -249,8 +247,8 @@ const Occupant = memo(function Occupant({
           {
             width: shadowW,
             height: shadowH,
-            left: width * STAND.x - shadowW / 2,
-            top: height * STAND.y - shadowH / 2,
+            left: stand.x - shadowW / 2,
+            top: stand.y - shadowH / 2,
             borderRadius: boxH,
           },
           shadow,
@@ -260,7 +258,7 @@ const Occupant = memo(function Occupant({
         pointerEvents="none"
         style={[{ position: 'absolute', left, top, width: boxW, height: boxH }, body]}
       >
-        {STAGE_CLIPS.map((name) => (
+        {SCENE_CLIPS.map((name) => (
           <ClipLayer key={name} name={name} visible={name === clip} clock={clock} scale={scale} />
         ))}
       </Animated.View>
@@ -269,27 +267,34 @@ const Occupant = memo(function Occupant({
 });
 
 /* ------------------------------------------------------------------ *
- * The stage
+ * The scene
  * ------------------------------------------------------------------ */
 
-export function MascotStage({ phase, timeText, progress, tick, timeLabel, layout }: Props) {
+export function RoomScene({ phase, timeText, progress, tick, timeLabel, layout = DEFAULT_LAYOUT }: Props) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const running = phase === 'focusing' || phase === 'resting';
   const onBreak = phase === 'resting';
 
-  // The readout sits over the drawn clock face, in the app's own type. Drawing
-  // it as SVG text would mean a second font pipeline for four digits.
-  const faceSize = size.width * CLOCK_FACE.r * 2;
+  const ready = size.width > 0 && size.height > 0;
+  // Everything drawn over the room — the readout, the mascot — goes through the
+  // same cover transform the SVG uses, so it lands where the drawing is.
+  const p = project(size.width, size.height);
+  const face = {
+    ...p.at(SLOTS.clock.x, SLOTS.clock.y),
+    w: SLOTS.clock.w * p.scale,
+    h: SLOTS.clock.h * p.scale,
+  };
+  const stand = p.at(STAND.x, STAND.y);
 
   return (
     <View
-      style={styles.stage}
+      style={styles.scene}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
         setSize((s) => (s.width === width && s.height === height ? s : { width, height }));
       }}
     >
-      {size.height > 0 && (
+      {ready && (
         <>
           <Room
             state={{ progress, onBreak, tick, running }}
@@ -297,9 +302,12 @@ export function MascotStage({ phase, timeText, progress, tick, timeLabel, layout
             width={size.width}
             height={size.height}
           />
-          <Motes width={size.width} height={size.height} />
-          <Occupant phase={phase} width={size.width} height={size.height} />
+          <Occupant phase={phase} stand={stand} scale={p.scale} />
 
+          {/*
+            The readout, over the drawn face. Drawing it as SVG text would mean
+            a second font pipeline for four digits.
+          */}
           <View
             pointerEvents="none"
             accessible
@@ -308,19 +316,15 @@ export function MascotStage({ phase, timeText, progress, tick, timeLabel, layout
             accessibilityLiveRegion="polite"
             style={{
               position: 'absolute',
-              left: size.width * CLOCK_FACE.cx - faceSize / 2,
-              top: size.height * CLOCK_FACE.cy - faceSize / 2,
-              width: faceSize,
-              height: faceSize,
+              left: face.x,
+              top: face.y,
+              width: face.w,
+              height: face.h,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={[styles.clock, { fontSize: faceSize * 0.3 }]}
-            >
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.clock, { fontSize: face.w * 0.29 }]}>
               {timeText}
             </Text>
           </View>
@@ -331,23 +335,9 @@ export function MascotStage({ phase, timeText, progress, tick, timeLabel, layout
 }
 
 const styles = StyleSheet.create({
-  stage: {
-    width: '100%',
-    aspectRatio: VB_W / VB_H,
-    borderRadius: radius.cardLg,
-    backgroundColor: '#e6d3cd',
-    overflow: 'hidden',
-    ...curve,
-  },
-  shadow: {
-    position: 'absolute',
-    backgroundColor: 'rgba(90,64,50,0.13)',
-  },
-  clock: {
-    fontFamily: font.headingBold,
-    color: sage.fg,
-    letterSpacing: -0.5,
-  },
+  scene: { ...StyleSheet.absoluteFillObject, backgroundColor: room.wallTop },
+  shadow: { position: 'absolute', backgroundColor: 'rgba(90,64,50,0.13)' },
+  clock: { fontFamily: font.headingBold, color: room.ink, letterSpacing: -0.5 },
 });
 
-export default MascotStage;
+export default RoomScene;

@@ -1,17 +1,21 @@
 /**
  * The room: the shell, plus whatever the layout says is in it.
  *
- * Three layers, because they move at different rates and for different reasons:
+ * It is the whole Pomodoro tab, so it covers the screen rather than fitting
+ * inside it — scaled up until it fills, anchored to the bottom. See slots.ts
+ * for why that beats stretching or re-anchoring.
  *
- *   shell + items   drawn once per timer tick; the clock is in here
+ * Four layers, because they move at different rates and for different reasons:
+ *
+ *   shell + items   redrawn once a second, since the clock is in here
  *   breeze          the parts that drift — leaves, mostly — rocked very
  *                   slightly and endlessly
  *   steam           wisps off anything that declares a steam point
+ *   dust            a few specks turning over in the light
  *
- * The breeze and the steam are what stop this reading as a poster with a panda
- * on it. Both stop dead under Reduce Motion, which is the setting's whole
- * purpose; the clock keeps working, because it is information rather than
- * decoration.
+ * The last three are what stop this reading as a poster with a panda on it, and
+ * all three stop dead under Reduce Motion, which is that setting's whole
+ * purpose. The clock does not, because the clock is information.
  */
 import { memo, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -31,11 +35,13 @@ import { useMotion } from '@/theme/useMotion';
 import type { RoomState } from './items';
 import { DEFAULT_LAYOUT, resolveLayout, type RoomLayout } from './layout';
 import { room } from './palette';
-import { HORIZON, SLOTS, VB_H, VB_W } from './slots';
+import { HORIZON, project, SLOTS, VB_H, VB_W } from './slots';
 
 interface Props {
   state: RoomState;
   layout?: RoomLayout;
+  width: number;
+  height: number;
 }
 
 /* ------------------------------------------------------------------ *
@@ -50,23 +56,24 @@ const Shell = memo(function Shell() {
           <Stop offset="0" stopColor={room.wallTop} />
           <Stop offset="1" stopColor={room.wallBottom} />
         </LinearGradient>
+        <LinearGradient id="roomFloor" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={room.floor} />
+          <Stop offset="1" stopColor={room.floorDark} />
+        </LinearGradient>
       </Defs>
 
       <Rect x="0" y="0" width={VB_W} height={VB_H} fill="url(#roomWall)" />
-      <Rect x="0" y={HORIZON} width={VB_W} height={VB_H - HORIZON} fill={room.floor} />
+      <Rect x="0" y={HORIZON} width={VB_W} height={VB_H - HORIZON} fill="url(#roomFloor)" />
       {/* skirting board, the one line that sells the corner of a room */}
-      <Rect x="0" y={HORIZON - 9} width={VB_W} height={11} fill={room.skirting} />
+      <Rect x="0" y={HORIZON - 10} width={VB_W} height={12} fill={room.skirting} />
       <Path
-        d={`M0,${HORIZON - 9} H${VB_W} M0,${HORIZON + 2} H${VB_W}`}
+        d={`M0,${HORIZON - 10} H${VB_W} M0,${HORIZON + 2} H${VB_W}`}
         stroke={room.ink}
         strokeWidth={2.4}
       />
-      {/* a couple of floorboards, short of the rug so they read as depth */}
-      <Path
-        d={`M0,${HORIZON + 30} H${VB_W} M0,${HORIZON + 66} H${VB_W}`}
-        stroke={room.floorDark}
-        strokeWidth={2}
-      />
+      {/* floorboards, fading as they come forward */}
+      <Path d={`M0,${HORIZON + 38} H${VB_W}`} stroke={room.floorDark} strokeWidth={2} opacity={0.5} />
+      <Path d={`M0,${HORIZON + 88} H${VB_W}`} stroke={room.floorDark} strokeWidth={2} opacity={0.3} />
     </>
   );
 });
@@ -93,7 +100,7 @@ function Wisp({ left, top, delay, size }: { left: number; top: number; delay: nu
   }, [delay, motion.reduce, t]);
 
   const style = useAnimatedStyle(() => ({
-    opacity: t.value < 0.15 ? t.value / 0.15 * 0.5 : (1 - t.value) * 0.5,
+    opacity: t.value < 0.15 ? (t.value / 0.15) * 0.45 : (1 - t.value) * 0.45,
     transform: [{ translateY: -t.value * 26 }, { translateX: Math.sin(t.value * 6) * 3 }],
   }));
 
@@ -117,85 +124,11 @@ function Wisp({ left, top, delay, size }: { left: number; top: number; delay: nu
 }
 
 /* ------------------------------------------------------------------ *
- * The room
+ * Dust
  * ------------------------------------------------------------------ */
 
-export function Room({ state, layout = DEFAULT_LAYOUT, width, height }: Props & { width: number; height: number }) {
-  const motion = useMotion();
-  const sway = useSharedValue(0);
-
-  useEffect(() => {
-    cancelAnimation(sway);
-    if (motion.reduce) {
-      sway.value = 0;
-      return;
-    }
-    // Slow and small. A draught, not a gale — at this scale the leaves move
-    // about a pixel and a half, which is enough to notice and not enough to
-    // look like the room is on a boat.
-    sway.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 3400, easing: Easing.inOut(Easing.sin) }),
-        withTiming(-1, { duration: 3400, easing: Easing.inOut(Easing.sin) }),
-      ),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(sway);
-  }, [motion.reduce, sway]);
-
-  const breezeStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: sway.value * (width / VB_W) * 1.6 }],
-  }));
-
-  const placed = resolveLayout(layout);
-  const drifting = placed.filter((p) => p.item.breeze);
-  const steaming = placed
-    .map((p) => (p.item.steam ? p.item.steam(SLOTS[p.slot]) : null))
-    .filter((v): v is { x: number; y: number } => v !== null);
-
-  const sx = width / VB_W;
-  const sy = height / VB_H;
-
-  return (
-    <>
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Svg width="100%" height="100%" viewBox={`0 0 ${VB_W} ${VB_H}`}>
-          <Shell />
-          {placed.map(({ slot, item }) => (
-            <G key={`${slot}:${item.id}`}>{item.draw(SLOTS[slot], state)}</G>
-          ))}
-        </Svg>
-      </View>
-
-      <Animated.View style={[StyleSheet.absoluteFill, breezeStyle]} pointerEvents="none">
-        <Svg width="100%" height="100%" viewBox={`0 0 ${VB_W} ${VB_H}`}>
-          {drifting.map(({ slot, item }) => (
-            <G key={`${slot}:${item.id}`}>{item.breeze!(SLOTS[slot], state)}</G>
-          ))}
-        </Svg>
-      </Animated.View>
-
-      {steaming.map((p, i) => (
-        <View key={i} style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Wisp left={p.x * sx - 3} top={p.y * sy - 6} delay={0} size={6} />
-          <Wisp left={p.x * sx + 3} top={p.y * sy - 2} delay={1100} size={5} />
-          <Wisp left={p.x * sx - 1} top={p.y * sy} delay={2200} size={4} />
-        </View>
-      ))}
-    </>
-  );
-}
-
-/** One speck, drifting up through the light. */
 function Mote({
-  phase,
-  x,
-  drift,
-  size,
-  width,
-  height,
-  clock,
+  phase, x, drift, size, width, height, clock,
 }: {
   phase: number;
   x: number;
@@ -208,10 +141,10 @@ function Mote({
   const style = useAnimatedStyle(() => {
     const p = (clock.value + phase) % 1;
     return {
-      opacity: Math.sin(p * Math.PI) * 0.35,
+      opacity: Math.sin(p * Math.PI) * 0.3,
       transform: [
         { translateX: x * width + Math.sin(p * Math.PI * 2) * drift },
-        { translateY: height * (0.85 - p * 0.55) },
+        { translateY: height * (0.9 - p * 0.6) },
       ],
     };
   });
@@ -220,43 +153,106 @@ function Mote({
     <Animated.View
       pointerEvents="none"
       style={[
-        {
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size,
-          backgroundColor: '#fff8ee',
-        },
+        { position: 'absolute', width: size, height: size, borderRadius: size, backgroundColor: '#fff8ee' },
         style,
       ]}
     />
   );
 }
 
-/** A few specks of dust, purely to keep the air from looking dead. */
-export const Motes = memo(function Motes({ width, height }: { width: number; height: number }) {
+/* ------------------------------------------------------------------ *
+ * The room
+ * ------------------------------------------------------------------ */
+
+export function Room({ state, layout = DEFAULT_LAYOUT, width, height }: Props) {
   const motion = useMotion();
-  const clock = useSharedValue(0);
+  const sway = useSharedValue(0);
+  const dust = useSharedValue(0);
 
   useEffect(() => {
-    cancelAnimation(clock);
+    cancelAnimation(sway);
+    cancelAnimation(dust);
     if (motion.reduce) {
-      clock.value = 0;
+      sway.value = 0;
+      dust.value = 0;
       return;
     }
-    clock.value = withRepeat(withTiming(1, { duration: 14000, easing: Easing.linear }), -1, false);
-    return () => cancelAnimation(clock);
-  }, [motion.reduce, clock]);
+    // Slow and small. A draught, not a gale.
+    sway.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 3400, easing: Easing.inOut(Easing.sin) }),
+        withTiming(-1, { duration: 3400, easing: Easing.inOut(Easing.sin) }),
+      ),
+      -1,
+      true,
+    );
+    dust.value = withRepeat(withTiming(1, { duration: 15000, easing: Easing.linear }), -1, false);
+    return () => {
+      cancelAnimation(sway);
+      cancelAnimation(dust);
+    };
+  }, [motion.reduce, sway, dust]);
 
-  if (motion.reduce) return null;
+  const breezeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sway.value * (width / VB_W) * 1.6 }],
+  }));
+
+  const placed = resolveLayout(layout);
+  const drifting = placed.filter((p) => p.item.breeze);
+  // Steam points are in viewBox units; the wisps are plain views, so they need
+  // the same cover transform the SVG is drawn with.
+  const p = project(width, height);
+  const steaming = placed
+    .map((q) => (q.item.steam ? q.item.steam(SLOTS[q.slot]) : null))
+    .filter((v): v is { x: number; y: number } => v !== null)
+    .map((v) => p.at(v.x, v.y));
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <Mote phase={0} x={0.2} drift={14} size={4} width={width} height={height} clock={clock} />
-      <Mote phase={0.38} x={0.62} drift={10} size={3} width={width} height={height} clock={clock} />
-      <Mote phase={0.71} x={0.85} drift={16} size={3.5} width={width} height={height} clock={clock} />
+      <View style={StyleSheet.absoluteFill}>
+        <Svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          preserveAspectRatio="xMidYMax slice"
+        >
+          <Shell />
+          {placed.map(({ slot, item }) => (
+            <G key={`${slot}:${item.id}`}>{item.draw(SLOTS[slot], state)}</G>
+          ))}
+        </Svg>
+      </View>
+
+      <Animated.View style={[StyleSheet.absoluteFill, breezeStyle]}>
+        <Svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          preserveAspectRatio="xMidYMax slice"
+        >
+          {drifting.map(({ slot, item }) => (
+            <G key={`${slot}:${item.id}`}>{item.breeze!(SLOTS[slot], state)}</G>
+          ))}
+        </Svg>
+      </Animated.View>
+
+      {steaming.map((q, i) => (
+        <View key={i} style={StyleSheet.absoluteFill}>
+          <Wisp left={q.x - 3} top={q.y - 6} delay={0} size={6} />
+          <Wisp left={q.x + 3} top={q.y - 2} delay={1100} size={5} />
+          <Wisp left={q.x - 1} top={q.y} delay={2200} size={4} />
+        </View>
+      ))}
+
+      {!motion.reduce && (
+        <View style={StyleSheet.absoluteFill}>
+          <Mote phase={0} x={0.22} drift={14} size={4} width={width} height={height} clock={dust} />
+          <Mote phase={0.38} x={0.64} drift={10} size={3} width={width} height={height} clock={dust} />
+          <Mote phase={0.71} x={0.86} drift={16} size={3.5} width={width} height={height} clock={dust} />
+        </View>
+      )}
     </View>
   );
-});
+}
 
 export default Room;

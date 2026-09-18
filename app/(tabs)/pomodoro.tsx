@@ -10,19 +10,20 @@
  * construction: the number on screen is the number of seconds left, and it is
  * right because it is derived from the clock rather than counted.
  *
- * The mascot has a reserved stage here (`MascotStage`) and lands separately.
+ * The mascot's room *is* this screen: the scene fills the tab and everything
+ * else is drawn over it. See components/sage/room.
  * ------------------------------------------------------------------ */
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import { Check, Pause, Play, RotateCcw, SkipForward, SlidersHorizontal } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MascotStage, type MascotPhase } from '@/components/sage/MascotStage';
+import { RoomScene, type MascotPhase } from '@/components/sage/room/RoomScene';
 import { useCelebrate } from '@/components/sage/Celebration';
 import { haptic } from '@/components/primitives/usePressScale';
-import { SageBackground } from '@/components/sage/Background';
-import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
+import { curve, font, gutter, radius, sage, text } from '@/theme/sage';
+import { room } from '@/components/sage/room/palette';
 import {
   DEFAULT_SETTINGS,
   SETTING_BOUNDS,
@@ -339,13 +340,25 @@ export default function PomodoroScreen() {
       : 'idle';
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <SageBackground />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
+    <View style={styles.screen}>
+      {/*
+        The room is the tab, not a panel on it — full bleed, under the status
+        bar, with no card around it and none of the app's usual paper backdrop.
+        Everything below is drawn over the scene.
+      */}
+      <RoomScene
+        phase={mascotPhase}
+        timeText={`${mm}:${ss}`}
+        progress={progress}
+        tick={totalSeconds}
+        timeLabel={`${PHASE_COPY[phase].label}. ${Math.floor(totalSeconds / 60)} minutes ${totalSeconds % 60} seconds remaining`}
+      />
+
+      <SafeAreaView style={styles.overlay} edges={['top']} pointerEvents="box-none">
+        <View style={styles.header} pointerEvents="box-none">
           <View style={{ flex: 1 }}>
-            <Text style={text.title}>Pomodoro</Text>
-            <Text style={text.body}>
+            <Text style={styles.title}>Pomodoro</Text>
+            <Text style={styles.subtitle}>
               {PHASE_COPY[phase].label}
               {phase === 'focus' ? ` · round ${Math.min(round + 1, settings.roundsBeforeLongBreak)} of ${settings.roundsBeforeLongBreak}` : ''}
             </Text>
@@ -357,74 +370,61 @@ export default function PomodoroScreen() {
             accessibilityRole="button"
             accessibilityLabel="Timer settings"
           >
-            <SlidersHorizontal size={19} color={sage.fgSecondary} strokeWidth={1.8} />
+            <SlidersHorizontal size={19} color={room.ink} strokeWidth={1.9} />
           </Pressable>
         </View>
 
-        {/*
-          The timer is the clock on the wall of the mascot's room. It used to be
-          a ring of its own below the scene, which meant the screen said the
-          same thing twice and left the room as decoration beside it. `ringRef`
-          keeps its name and its job: it is what the confetti bursts from, which
-          is now the middle of the room.
-        */}
-        <View ref={ringRef} onLayout={measureRing}>
-          <MascotStage
-            phase={mascotPhase}
-            timeText={`${mm}:${ss}`}
-            progress={progress}
-            tick={totalSeconds}
-            timeLabel={`${PHASE_COPY[phase].label}. ${Math.floor(totalSeconds / 60)} minutes ${totalSeconds % 60} seconds remaining`}
-          />
+        {/* The room shows through here — this is the part you look at. */}
+        <View ref={ringRef} onLayout={measureRing} style={styles.roomGap} pointerEvents="none" />
+
+        <View style={styles.foot} pointerEvents="box-none">
+          <View style={styles.dots}>
+            {Array.from({ length: settings.roundsBeforeLongBreak }).map((_, i) => (
+              <View
+                key={i}
+                style={[styles.dot, i < round && { backgroundColor: room.sageAccent, borderColor: room.ink }]}
+              />
+            ))}
+          </View>
+
+          <View style={styles.controls}>
+            <Pressable
+              onPress={resetCycle}
+              style={styles.secondaryBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Reset the cycle"
+            >
+              <RotateCcw size={18} color={room.ink} strokeWidth={2} />
+            </Pressable>
+
+            <Pressable
+              onPress={toggle}
+              style={styles.primaryBtn}
+              accessibilityRole="button"
+              accessibilityLabel={running ? 'Pause' : 'Start'}
+            >
+              {running ? (
+                <Pause size={24} color={sage.onPrimary} strokeWidth={2.2} fill={sage.onPrimary} />
+              ) : (
+                <Play size={24} color={sage.onPrimary} strokeWidth={2.2} fill={sage.onPrimary} />
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={skip}
+              style={styles.secondaryBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Skip to the next phase"
+            >
+              <SkipForward size={18} color={room.ink} strokeWidth={2} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.hint}>
+            The timer keeps running when you close the app.
+          </Text>
         </View>
-
-        {/* Completed rounds in this cycle, as dots. */}
-        <View style={styles.dots}>
-          {Array.from({ length: settings.roundsBeforeLongBreak }).map((_, i) => (
-            <View
-              key={i}
-              style={[styles.dot, i < round && { backgroundColor: sage.primary, borderColor: sage.primary }]}
-            />
-          ))}
-        </View>
-
-        <View style={styles.controls}>
-          <Pressable
-            onPress={resetCycle}
-            style={styles.secondaryBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Reset the cycle"
-          >
-            <RotateCcw size={18} color={sage.fgSecondary} strokeWidth={1.9} />
-          </Pressable>
-
-          <Pressable
-            onPress={toggle}
-            style={styles.primaryBtn}
-            accessibilityRole="button"
-            accessibilityLabel={running ? 'Pause' : 'Start'}
-          >
-            {running ? (
-              <Pause size={24} color={sage.onPrimary} strokeWidth={2.2} fill={sage.onPrimary} />
-            ) : (
-              <Play size={24} color={sage.onPrimary} strokeWidth={2.2} fill={sage.onPrimary} />
-            )}
-          </Pressable>
-
-          <Pressable
-            onPress={skip}
-            style={styles.secondaryBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Skip to the next phase"
-          >
-            <SkipForward size={18} color={sage.fgSecondary} strokeWidth={1.9} />
-          </Pressable>
-        </View>
-
-        <Text style={styles.hint}>
-          The timer keeps running when you close the app. You&apos;ll get a notification when the round ends.
-        </Text>
-      </ScrollView>
+      </SafeAreaView>
 
       <SettingsSheet
         open={settingsOpen}
@@ -432,7 +432,7 @@ export default function PomodoroScreen() {
         onClose={() => setSettingsOpen(false)}
         onChange={applySettings}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -539,49 +539,70 @@ function SettingsSheet({
  * ------------------------------------------------------------------ */
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: sage.bg },
-  scroll: { paddingHorizontal: gutter, paddingBottom: 40 },
+  // The room paints the whole tab; this is only what shows before it measures.
+  screen: { flex: 1, backgroundColor: room.wallTop },
 
-  header: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: 8, paddingBottom: 16, gap: 12 },
+  /**
+   * Everything drawn over the scene. `box-none` throughout, so the parts of the
+   * room between the header and the controls are not covered by an invisible
+   * sheet — and so a future tap on the mascot itself can reach it.
+   */
+  overlay: { ...StyleSheet.absoluteFillObject, paddingHorizontal: gutter },
+  /** The middle of the screen, left empty for the room to be looked at. */
+  roomGap: { flex: 1 },
+  foot: { paddingBottom: 18 },
+
+  header: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: 8, paddingBottom: 12, gap: 12 },
+  // Room ink rather than the app's green, since this sits on plaster.
+  title: { fontFamily: font.heading, fontSize: 26, color: room.ink },
+  subtitle: { fontFamily: font.body, fontSize: 13.5, lineHeight: 20, color: room.inkSoft, marginTop: 2 },
   iconBtn: {
     width: 38,
     height: 38,
     borderRadius: radius.sm,
-    backgroundColor: sage.surface,
+    backgroundColor: room.cream,
+    borderWidth: 2,
+    borderColor: room.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.soft,
     ...curve,
   },
 
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 22 },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 20 },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: sage.ruleStrong,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.6,
+    borderColor: room.inkSoft,
     backgroundColor: 'transparent',
   },
 
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22, marginTop: 26 },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22 },
+  /**
+   * Outlined rather than shadowed. The room is drawn with one flat ink line
+   * around everything in it, and a soft drop shadow over the top of that reads
+   * as a control that wandered in from a different app.
+   */
   primaryBtn: {
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: sage.primary,
+    backgroundColor: room.sageAccent,
+    borderWidth: 2.5,
+    borderColor: room.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.lifted,
   },
   secondaryBtn: {
-    width: 46,
-    height: 46,
+    width: 48,
+    height: 48,
     borderRadius: radius.sm,
-    backgroundColor: sage.surface,
+    backgroundColor: room.cream,
+    borderWidth: 2.5,
+    borderColor: room.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.soft,
     ...curve,
   },
 
@@ -589,9 +610,9 @@ const styles = StyleSheet.create({
     fontFamily: font.body,
     fontSize: 12,
     lineHeight: 18,
-    color: sage.fgMuted,
+    color: room.inkSoft,
     textAlign: 'center',
-    marginTop: 26,
+    marginTop: 16,
     paddingHorizontal: 20,
   },
 

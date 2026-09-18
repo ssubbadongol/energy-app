@@ -136,7 +136,10 @@ const clock: RoomItem = {
     const rim = r.w / 2 - 3;
     const tint = s.onBreak ? clockTint.break : clockTint.focus;
     const start = -Math.PI / 2;
-    const sweep = Math.max(0.0001, Math.min(1, s.progress)) * Math.PI * 2;
+    // Stops just short of a whole turn. An arc whose ends meet is degenerate —
+    // SVG draws nothing at all — so a full rim would vanish, which is precisely
+    // the state the tab opens in.
+    const sweep = Math.min(Math.max(s.progress, 0.0001), 0.9995) * Math.PI * 2;
     // The second hand, a small dot travelling the rim once a minute.
     const hand = start + (s.tick % 60) * (Math.PI / 30);
 
