@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:rules": "firebase emulators:exec --only firestore --project soft-focus-rules-test \"node --test functions/test/rules.test.mjs\""
+    "test:rules": "firebase emulators:exec --only firestore --project soft-focus-rules-test \"node --test functions/test/rules.test.mjs\"",
+    "test:killswitch": "firebase emulators:exec --only functions,firestore,pubsub --project soft-focus-app \"node --test functions/test/killswitch.test.mjs\""
   },
   "dependencies": {
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",

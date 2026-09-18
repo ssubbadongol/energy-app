@@ -300,6 +300,26 @@ an error.
 ### Test it without spending money
 
 ```bash
+npm run test:killswitch
+```
+
+Drives the real handler through the emulator with a genuine Pub/Sub message at
+50%, 90% and 100%, and asserts what each threshold does. Needs JDK 21, same as
+the rules tests (§9.7).
+
+⚠️ **What it does not prove:** that a billing budget exists in GCP and is
+configured to publish to `softfocus-billing-alerts`. That wiring lives in the
+Cloud console and nothing in this repo can see it. Check it at
+[Budgets & alerts](https://console.cloud.google.com/billing) → your budget →
+*Manage notifications* → **Connect a Pub/Sub topic to this budget**.
+
+Without that connection the function is correct and will simply never be
+called — which is exactly the state it was in until 2026-09-18, when its logs
+contained nothing but deployment audits.
+
+### The manual version
+
+```bash
 gcloud pubsub topics publish softfocus-billing-alerts \
   --project soft-focus-app \
   --message '{"budgetDisplayName":"test","costAmount":95,"budgetAmount":100,"alertThresholdExceeded":0.9}'
