@@ -18,7 +18,6 @@ import { Check, Pause, Play, RotateCcw, SkipForward, SlidersHorizontal } from 'l
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
 import { MascotStage, type MascotPhase } from '@/components/sage/MascotStage';
 import { useCelebrate } from '@/components/sage/Celebration';
 import { haptic } from '@/components/primitives/usePressScale';
@@ -58,37 +57,6 @@ const PHASE_COPY: Record<Phase, { label: string; done: string; body: string }> =
     body: 'That was a proper rest. Back to it when you like.',
   },
 };
-
-/* ------------------------------------------------------------------ *
- * Ring
- * ------------------------------------------------------------------ */
-
-const RING = 232;
-const STROKE = 10;
-const R = (RING - STROKE) / 2;
-const CIRC = 2 * Math.PI * R;
-
-function Ring({ progress, phase }: { progress: number; phase: Phase }) {
-  const colour = phase === 'focus' ? sage.primary : sage.leafSoft;
-  return (
-    <Svg width={RING} height={RING} style={StyleSheet.absoluteFill}>
-      <Circle cx={RING / 2} cy={RING / 2} r={R} stroke={sage.track} strokeWidth={STROKE} fill="none" />
-      <Circle
-        cx={RING / 2}
-        cy={RING / 2}
-        r={R}
-        stroke={colour}
-        strokeWidth={STROKE}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={CIRC}
-        // Drains clockwise from 12 o'clock as the round is spent.
-        strokeDashoffset={CIRC * (1 - progress)}
-        transform={`rotate(-90 ${RING / 2} ${RING / 2})`}
-      />
-    </Svg>
-  );
-}
 
 /* ------------------------------------------------------------------ *
  * Screen
@@ -393,20 +361,21 @@ export default function PomodoroScreen() {
           </Pressable>
         </View>
 
-        <MascotStage phase={mascotPhase} />
-
-        <View ref={ringRef} onLayout={measureRing} style={styles.ringWrap}>
-          <Ring progress={progress} phase={phase} />
-          <View style={styles.ringCentre}>
-            <Text
-              style={styles.clock}
-              accessibilityLiveRegion="polite"
-              accessibilityLabel={`${Math.floor(totalSeconds / 60)} minutes ${totalSeconds % 60} seconds remaining`}
-            >
-              {mm}:{ss}
-            </Text>
-            <Text style={styles.phaseLabel}>{PHASE_COPY[phase].label.toUpperCase()}</Text>
-          </View>
+        {/*
+          The timer is the clock on the wall of the mascot's room. It used to be
+          a ring of its own below the scene, which meant the screen said the
+          same thing twice and left the room as decoration beside it. `ringRef`
+          keeps its name and its job: it is what the confetti bursts from, which
+          is now the middle of the room.
+        */}
+        <View ref={ringRef} onLayout={measureRing}>
+          <MascotStage
+            phase={mascotPhase}
+            timeText={`${mm}:${ss}`}
+            progress={progress}
+            tick={totalSeconds}
+            timeLabel={`${PHASE_COPY[phase].label}. ${Math.floor(totalSeconds / 60)} minutes ${totalSeconds % 60} seconds remaining`}
+          />
         </View>
 
         {/* Completed rounds in this cycle, as dots. */}
@@ -583,30 +552,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...shadow.soft,
     ...curve,
-  },
-
-  ringWrap: {
-    width: RING,
-    height: RING,
-    alignSelf: 'center',
-    marginTop: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ringCentre: { alignItems: 'center', justifyContent: 'center' },
-  clock: {
-    fontFamily: font.heading,
-    fontSize: 52,
-    color: sage.fg,
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -1,
-  },
-  phaseLabel: {
-    fontFamily: font.ui,
-    fontSize: 11,
-    letterSpacing: 1.6,
-    color: sage.fgMuted,
-    marginTop: 2,
   },
 
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 22 },

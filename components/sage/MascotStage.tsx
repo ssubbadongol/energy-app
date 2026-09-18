@@ -1,23 +1,22 @@
 /**
- * The mascot's stage: a small study, and the red panda who works in it.
+ * The mascot's room, and the clock it lives under.
  *
- * The stage owns the *space* — a fixed aspect ratio, a ground line, the
- * palette — so nothing here can reflow the screen around it. It takes one
- * prop, `phase`, and `pomodoro.tsx` still knows nothing about sprite sheets,
- * clips or furniture.
+ * Tall rather than wide: it is somewhere the mascot lives, and a room reads as
+ * a room when you can see the wall meet the floor. The scene owns that space at
+ * a fixed aspect ratio, so nothing in here can reflow the screen around it.
  *
- * Three layers, back to front:
+ * The timer is the clock on the wall. That is a deliberate change from the
+ * stage taking only a `phase`: the clock is the room's own way of telling you
+ * how long is left, and it cannot do that without the numbers. Everything else
+ * about the timer — the phase machine, the rounds, the controls — still stays
+ * on the Pomodoro screen.
  *
- *   StudyRoom   drawn scenery — desk, chair, lamps, shelf, rug, plant
- *   RoomLight   the lamps' warm pool, which rises when a focus block starts
- *   the mascot  sprite frames from assets/mascot, positioned by its feet
- *
- * The character is eye candy and nothing else: it cannot be tapped, it carries
- * no state the timer depends on, and it is `accessible={false}` inside a stage
- * that already describes itself in one line.
+ * What is in the room comes from a `RoomLayout`, which is plain data. Passing a
+ * different one furnishes it differently, which is the seam a shop hangs off;
+ * see room/layout.ts.
  */
-import { memo, useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType } from 'react-native';
+import { memo, useEffect, useState } from 'react';
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -28,11 +27,12 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import { curve, radius, sage } from '@/theme/sage';
+import { curve, font, radius, sage } from '@/theme/sage';
 import { useMotion } from '@/theme/useMotion';
 import { BOX_H, BOX_W, CLIPS, type ClipName } from '../mascot/frames';
-import { RoomLight } from './RoomLight';
-import { ROAM, RUG, StudyRoom } from './StudyRoom';
+import { Motes, Room } from './room/Room';
+import type { RoomLayout } from './room/layout';
+import { CLOCK_FACE, ROAM, STAND, VB_H, VB_W } from './room/slots';
 
 /**
  * What the timer is doing, in the only terms the mascot needs.
@@ -45,57 +45,38 @@ export type MascotPhase = 'idle' | 'focusing' | 'resting' | 'complete';
 
 interface Props {
   phase: MascotPhase;
+  /** What the wall clock shows. */
+  timeText: string;
+  /** 1 at the start of a phase, 0 when it runs out. Drains the clock's rim. */
+  progress: number;
+  /** Counts seconds while the timer runs; moves the clock's second hand. */
+  tick: number;
+  /** Spoken for the clock, which is the one part of the room that is content. */
+  timeLabel: string;
+  layout?: RoomLayout;
 }
 
-/**
- * What the mascot is doing in each phase.
- *
- * Nothing is started, so it is asleep on the rug. A focus block is the one it
- * works through, headphones on. A break is the one where it gets up and
- * pothers about the room — the reason `resting` is handled separately below.
- */
+/** What the mascot is doing in each phase. */
 const CLIP_FOR: Record<Exclude<MascotPhase, 'resting'>, ClipName> = {
-  idle: 'sleeping',
+  idle: 'idle',
   focusing: 'working',
   complete: 'happy',
 };
 
-/** How bright the lamps burn per phase. Working late is the bright one. */
-const LAMPS: Record<MascotPhase, number> = {
-  idle: 0.22,
-  focusing: 1,
-  resting: 0.45,
-  complete: 0.9,
-};
+/** The clips the room ever shows — not the ones that belong to being carried. */
+const STAGE_CLIPS: ClipName[] = ['idle', 'walking', 'working', 'sleeping', 'happy', 'spin'];
 
-/**
- * The clips the study ever shows. Not every clip in the sheet set: `held` and
- * `recover` belong to the roaming mascot, which can be picked up — the one in
- * here cannot, and mounting their frames would just be images nobody sees.
- */
-const STAGE_CLIPS: ClipName[] = ['walking', 'working', 'sleeping', 'happy'];
-
-/** The mascot's height as a fraction of the stage, measured on `walking`. */
-const MASCOT_SCALE = 0.3;
+/** The mascot's height as a fraction of the room, measured on `walking`. */
+const MASCOT_SCALE = 0.17;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
 /* ------------------------------------------------------------------ *
  * Sprite rendering
- *
- * Every frame of every clip stays mounted and only its opacity changes.
- * Swapping an <Image source> on each tick would re-decode per frame and flash
- * the first time a clip is used; sixteen small, always-resident images cost
- * less than that, and let the flipbook run on the UI thread off one clock.
  * ------------------------------------------------------------------ */
 
 function Frame({
-  source,
-  index,
-  count,
-  clock,
-  width,
-  height,
+  source, index, count, clock, width, height,
 }: {
   source: ImageSourcePropType;
   index: number;
@@ -107,7 +88,6 @@ function Frame({
   const style = useAnimatedStyle(() => ({
     opacity: Math.floor(clock.value) % count === index ? 1 : 0,
   }));
-
   return (
     <Animated.View style={[StyleSheet.absoluteFill, style]}>
       <Image source={source} style={{ width, height }} resizeMode="contain" fadeDuration={0} />
@@ -116,10 +96,7 @@ function Frame({
 }
 
 function ClipLayer({
-  name,
-  visible,
-  clock,
-  scale,
+  name, visible, clock, scale,
 }: {
   name: ClipName;
   visible: boolean;
@@ -129,7 +106,6 @@ function ClipLayer({
   const clip = CLIPS[name];
   const width = clip.width * scale;
   const height = clip.height * scale;
-
   return (
     <View
       pointerEvents="none"
@@ -143,15 +119,7 @@ function ClipLayer({
       }}
     >
       {clip.sources.map((source, i) => (
-        <Frame
-          key={i}
-          source={source}
-          index={i}
-          count={clip.sources.length}
-          clock={clock}
-          width={width}
-          height={height}
-        />
+        <Frame key={i} source={source} index={i} count={clip.sources.length} clock={clock} width={width} height={height} />
       ))}
     </View>
   );
@@ -162,54 +130,33 @@ function ClipLayer({
  * ------------------------------------------------------------------ */
 
 const Occupant = memo(function Occupant({
-  phase,
-  width,
-  height,
-}: Props & { width: number; height: number }) {
+  phase, width, height,
+}: { phase: MascotPhase; width: number; height: number }) {
   const motion = useMotion();
-  const [clip, setClip] = useState<ClipName>('sleeping');
+  const [clip, setClip] = useState<ClipName>('idle');
 
-  /** Offset from the rug's centre, in px. Only a break moves it. */
   const x = useSharedValue(0);
-  /** -1 faces left. Animated through zero, which reads as turning round. */
   const facing = useSharedValue(1);
-  /** A walker's bob, so a pace across the rug is not a slide. */
   const bob = useSharedValue(0);
-  /** Sprite flipbook clock, counted in frames. */
   const clock = useSharedValue(0);
 
   const scale = (height * MASCOT_SCALE) / CLIPS.walking.height;
   const roamL = width * ROAM.left;
   const roamR = width * ROAM.right;
 
-  /* --- flipbook ---------------------------------------------------- */
-
   useEffect(() => {
-    const { sources, fps, still } = CLIPS[clip];
+    const { sources, fps, still, loop } = CLIPS[clip];
     cancelAnimation(clock);
-
-    // Reduce Motion gets one held frame per clip. A looping flipbook is
-    // exactly what that setting exists to stop, but the character itself is
-    // information — which clip is showing still says what the timer is doing.
     if (motion.reduce) {
       clock.value = still;
       return;
     }
-
+    const end = loop === false ? sources.length - 0.001 : sources.length;
+    const run = withTiming(end, { duration: (sources.length / fps) * 1000, easing: Easing.linear });
     clock.value = 0;
-    clock.value = withRepeat(
-      withTiming(sources.length, {
-        duration: (sources.length / fps) * 1000,
-        easing: Easing.linear,
-      }),
-      -1,
-      false,
-    );
-
+    clock.value = loop === false ? run : withRepeat(run, -1, false);
     return () => cancelAnimation(clock);
   }, [clip, motion.reduce, clock]);
-
-  /* --- bob, while walking ------------------------------------------ */
 
   useEffect(() => {
     cancelAnimation(bob);
@@ -228,15 +175,12 @@ const Occupant = memo(function Occupant({
     return () => cancelAnimation(bob);
   }, [clip, motion.reduce, bob]);
 
-  /* --- what it is doing -------------------------------------------- */
-
   useEffect(() => {
-    // Under Reduce Motion it stays on the rug and simply is what it is.
     if (motion.reduce) {
       cancelAnimation(x);
       x.value = 0;
       facing.value = 1;
-      setClip(phase === 'resting' ? 'sleeping' : CLIP_FOR[phase]);
+      setClip(phase === 'resting' ? 'idle' : CLIP_FOR[phase]);
       return;
     }
 
@@ -244,7 +188,6 @@ const Occupant = memo(function Occupant({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     if (phase !== 'resting') {
-      // Back to the rug, and back to work.
       setClip(CLIP_FOR[phase]);
       x.value = withTiming(0, { duration: 620, easing: Easing.out(Easing.quad) });
       facing.value = withTiming(1, { duration: 200 });
@@ -254,30 +197,25 @@ const Occupant = memo(function Occupant({
       };
     }
 
-    // A break: potter about the room, pausing to look pleased with itself.
+    // A break: up on its feet and pottering about the rug, with the odd sit.
     let at = 0;
     const pace = () => {
       if (!alive) return;
       const to = rand(-roamL, roamR);
       const ms = 700 + Math.abs(to - at) * 13;
-
       facing.value = withTiming(to >= at ? 1 : -1, { duration: 170 });
       setClip('walking');
       x.value = withTiming(to, { duration: ms, easing: Easing.inOut(Easing.quad) });
       at = to;
-
       timer = setTimeout(() => {
         if (!alive) return;
-        // A flop on the floor between laps. `happy` is reserved for finishing
-        // something, and a break is a break, not an achievement.
-        setClip('sleeping');
-        timer = setTimeout(pace, rand(1400, 3000));
+        setClip(Math.random() < 0.3 ? 'spin' : 'idle');
+        timer = setTimeout(pace, rand(1800, 3600));
       }, ms);
     };
 
-    // Let it stand up before it wanders off.
     timer = setTimeout(pace, 500);
-    setClip('sleeping');
+    setClip('idle');
 
     return () => {
       alive = false;
@@ -285,12 +223,10 @@ const Occupant = memo(function Occupant({
     };
   }, [phase, motion.reduce, roamL, roamR, x, facing]);
 
-  /* --- placement ---------------------------------------------------- */
-
   const boxW = BOX_W * scale;
   const boxH = BOX_H * scale;
-  const left = width * RUG.x - boxW / 2;
-  const top = height * RUG.y - boxH;
+  const left = width * STAND.x - boxW / 2;
+  const top = height * STAND.y - boxH;
 
   const body = useAnimatedStyle(() => ({
     transform: [
@@ -300,9 +236,8 @@ const Occupant = memo(function Occupant({
     ],
   }));
 
-  // Grounds the character. Sized to the clip that is actually showing, so the
-  // sleeping panda does not float above a shadow drawn for a standing one.
   const shadowW = CLIPS[clip].width * scale * 0.66;
+  const shadowH = Math.max(4, boxH * 0.07);
   const shadow = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
 
   return (
@@ -313,9 +248,9 @@ const Occupant = memo(function Occupant({
           styles.shadow,
           {
             width: shadowW,
-            height: Math.max(4, boxH * 0.07),
-            left: width * RUG.x - shadowW / 2,
-            top: height * RUG.y - Math.max(4, boxH * 0.07) / 2,
+            height: shadowH,
+            left: width * STAND.x - shadowW / 2,
+            top: height * STAND.y - shadowH / 2,
             borderRadius: boxH,
           },
           shadow,
@@ -337,32 +272,14 @@ const Occupant = memo(function Occupant({
  * The stage
  * ------------------------------------------------------------------ */
 
-/**
- * `aspectRatio` rather than a fixed height, so the room keeps its proportions
- * from a small phone to a tablet without a breakpoint. The mascot and the
- * lamps are then sized from the measured box, so everything scales together.
- */
-export function MascotStage({ phase }: Props) {
-  const motion = useMotion();
+export function MascotStage({ phase, timeText, progress, tick, timeLabel, layout }: Props) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const lamps = useSharedValue(LAMPS.idle);
-  const settled = useRef(false);
+  const running = phase === 'focusing' || phase === 'resting';
+  const onBreak = phase === 'resting';
 
-  useEffect(() => {
-    // The first phase is painted at its level rather than faded up to it, so
-    // opening the tab does not look like someone flicking the lights on.
-    if (!settled.current) {
-      settled.current = true;
-      lamps.value = LAMPS[phase];
-      return;
-    }
-    lamps.value = withTiming(LAMPS[phase], {
-      duration: motion.reduce ? 0 : 900,
-      easing: Easing.inOut(Easing.quad),
-    });
-  }, [phase, motion.reduce, lamps]);
-
-  const light = useAnimatedStyle(() => ({ opacity: lamps.value }));
+  // The readout sits over the drawn clock face, in the app's own type. Drawing
+  // it as SVG text would mean a second font pipeline for four digits.
+  const faceSize = size.width * CLOCK_FACE.r * 2;
 
   return (
     <View
@@ -371,44 +288,66 @@ export function MascotStage({ phase }: Props) {
         const { width, height } = e.nativeEvent.layout;
         setSize((s) => (s.width === width && s.height === height ? s : { width, height }));
       }}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={LABELS[phase]}
     >
-      <View style={StyleSheet.absoluteFill} pointerEvents="none" accessible={false}>
-        <StudyRoom />
-      </View>
-
-      <Animated.View style={[StyleSheet.absoluteFill, light]} pointerEvents="none" accessible={false}>
-        <RoomLight />
-      </Animated.View>
-
       {size.height > 0 && (
-        <Occupant phase={phase} width={size.width} height={size.height} />
+        <>
+          <Room
+            state={{ progress, onBreak, tick, running }}
+            layout={layout}
+            width={size.width}
+            height={size.height}
+          />
+          <Motes width={size.width} height={size.height} />
+          <Occupant phase={phase} width={size.width} height={size.height} />
+
+          <View
+            pointerEvents="none"
+            accessible
+            accessibilityRole="timer"
+            accessibilityLabel={timeLabel}
+            accessibilityLiveRegion="polite"
+            style={{
+              position: 'absolute',
+              left: size.width * CLOCK_FACE.cx - faceSize / 2,
+              top: size.height * CLOCK_FACE.cy - faceSize / 2,
+              width: faceSize,
+              height: faceSize,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[styles.clock, { fontSize: faceSize * 0.3 }]}
+            >
+              {timeText}
+            </Text>
+          </View>
+        </>
       )}
     </View>
   );
 }
 
-/** Spoken by VoiceOver in place of the scene. */
-const LABELS: Record<MascotPhase, string> = {
-  idle: 'Your focus companion, asleep at the desk until you start',
-  focusing: 'Your focus companion, working at the desk alongside you',
-  resting: 'Your focus companion, stretching its legs during the break',
-  complete: 'Your focus companion, pleased with you',
-};
-
 const styles = StyleSheet.create({
   stage: {
     width: '100%',
-    aspectRatio: 16 / 10,
+    aspectRatio: VB_W / VB_H,
     borderRadius: radius.cardLg,
-    backgroundColor: sage.fillGreenAlt,
+    backgroundColor: '#e6d3cd',
     overflow: 'hidden',
     ...curve,
   },
   shadow: {
     position: 'absolute',
-    backgroundColor: 'rgba(87,120,105,0.11)',
+    backgroundColor: 'rgba(90,64,50,0.13)',
+  },
+  clock: {
+    fontFamily: font.headingBold,
+    color: sage.fg,
+    letterSpacing: -0.5,
   },
 });
+
+export default MascotStage;
