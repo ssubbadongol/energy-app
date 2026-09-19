@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { getLifeTasks, toggleLifeTaskCompleted } from '../lifeTaskStorage';
 import { clearPinnedTask, setPinnedTask } from '../pinnedTaskStorage';
-import { getSharedTasks, updateSharedTasks } from './taskStorage';
+import { getSharedTasks, initializeTasks, toggleTaskCompletion } from '../taskStorage';
 
 const CHANNEL_ID = 'task-focus';
 export const NOTIF_ID = 'energy-pinned-task';
@@ -142,10 +142,24 @@ export async function handleNotificationResponse(
   if (actionId === 'DONE' || actionId === 'ALL_DONE') {
     // Mark fully complete
     if (taskType === 'task') {
-      const tasks = getSharedTasks();
-      updateSharedTasks(
-        tasks.map((t) => (String(t.id) === taskId ? { ...t, completed: true } : t))
-      );
+      /*
+        `initializeTasks` first, and it is not belt and braces. These actions
+        run with `opensAppToForeground: false`, so this handler can be the
+        first thing that executes on a cold start — at which point the store
+        is an empty array and the task is simply not found. It is idempotent,
+        so it costs nothing when the app was already running.
+
+        Then `toggleTaskCompletion` rather than rewriting the array by hand:
+        it mirrors the write to Firestore (so the mentor sees it) and ticks
+        the task's steps, which hand-rolling the map here silently skipped.
+        Guarded on `!completed` so "Done" only ever completes, never un-does —
+        the same shape as the life-task branch below.
+      */
+      await initializeTasks();
+      const task = getSharedTasks().find((t) => String(t.id) === taskId);
+      if (task && !task.completed) {
+        await toggleTaskCompletion(task.id);
+      }
     } else {
       const task = getLifeTasks().find((t) => t.id === taskId);
       if (task && !task.completed) {

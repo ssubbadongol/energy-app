@@ -178,9 +178,7 @@ export default function TabLayout() {
             options={{ title: 'Focus', tabBarIcon: ({ focused }) => <TabIcon emoji="🎯" focused={focused} /> }}
           />
 
-          {/* Routes kept reachable (via router.push) but off the tab bar */}
-          <Tabs.Screen name="all-tasks" options={{ href: null }} />
-          <Tabs.Screen name="add-task" options={{ href: null }} />
+          {/* ── Routes reachable via router.push, but off the tab bar ── */}
           {/*
             Settings is off the tab bar but must stay easy to find: it holds
             account deletion (5.1.1(v)) and the Privacy/Terms links (3.1.2), and
@@ -188,9 +186,12 @@ export default function TabLayout() {
           */}
           <Tabs.Screen name="settings" options={{ href: null }} />
 
-          {/* Hide files that have default exports but aren't real tabs */}
+          {/*
+            Not routes at all — files with default exports that expo-router
+            would otherwise turn into tabs. Both are currently unreferenced;
+            see the note in the session that removed the task screens.
+          */}
           <Tabs.Screen name="LifeTaskModal" options={{ href: null }} />
-          <Tabs.Screen name="TaskEditModal" options={{ href: null }} />
           <Tabs.Screen name="PinnedTaskBanner" options={{ href: null }} />
         </Tabs>
       </MascotProvider>
