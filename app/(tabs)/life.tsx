@@ -295,7 +295,7 @@ export default function LifeScreen() {
         ) : (
           <>
             <View style={styles.header}>
-              <View>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={text.title}>Life</Text>
                 <Text style={[text.body, { marginTop: 4 }]}>{lifeDone} of {enabled.length} today · basics only</Text>
               </View>

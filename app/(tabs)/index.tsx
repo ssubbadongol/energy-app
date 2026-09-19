@@ -218,9 +218,9 @@ export default function TodayScreen() {
         onScroll={onScroll}
       >
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerText}>
             <Text style={styles.dateLabel}>{todayLabel}</Text>
-            <Text style={styles.greeting}>{greeting}</Text>
+            <Text style={styles.greeting} numberOfLines={2}>{greeting}</Text>
           </View>
           <View style={styles.headerBtns}>
             <Pressable onPress={startAdd} style={[styles.iconBtn, styles.iconBtnPrimary]} hitSlop={6}>
@@ -674,9 +674,19 @@ const styles = StyleSheet.create({
   pinnedBtn: { width: 28, height: 28, borderRadius: 10, backgroundColor: sage.fillGreen, alignItems: 'center', justifyContent: 'center', ...curve },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 8, paddingBottom: 18, gap: 10 },
+  /*
+    `flex: 1` here is load-bearing, not tidiness. React Native defaults
+    `flexShrink` to 0, so without it the greeting claims its full intrinsic
+    width — around 300pt for "Good afternoon, <name>" at 26pt — and pushes the
+    three header buttons off the right edge of the screen. The calendar button
+    came out half-drawn and Settings disappeared entirely, which also took the
+    only route to account deletion and the Privacy links with it.
+  */
+  headerText: { flex: 1, minWidth: 0 },
   dateLabel: { fontFamily: font.body, fontSize: 13, color: sage.fgSecondary },
   greeting: { fontFamily: font.heading, fontSize: 26, lineHeight: 32, color: sage.fg, marginTop: 4 },
-  headerBtns: { flexDirection: 'row', gap: 8, paddingTop: 4 },
+  /* And the buttons never give ground: they are the only way off this screen. */
+  headerBtns: { flexDirection: 'row', gap: 8, paddingTop: 4, flexShrink: 0 },
   iconBtn: { width: 40, height: 40, borderRadius: 15, alignItems: 'center', justifyContent: 'center', ...curve },
   iconBtnPrimary: { backgroundColor: sage.primary, ...shadow.soft },
   iconBtnPlain: { backgroundColor: sage.surface, ...shadow.soft },
