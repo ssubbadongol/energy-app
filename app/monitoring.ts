@@ -47,6 +47,7 @@ export type AnalyticsEvent =
   | 'pomodoro_round_complete'
   | 'mentor_message_sent'
   | 'task_broken_down'
+  | 'task_rescheduled'
   | 'pod_joined'
   | 'pod_message_reported'
   | 'paywall_viewed'

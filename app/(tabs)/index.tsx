@@ -86,7 +86,6 @@ const cleanSteps = (steps: Subtask[]): Subtask[] =>
   steps.map((s) => ({ ...s, name: s.name.trim() })).filter((s) => s.name.length > 0);
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const FILTERS: ('All' | 'High' | 'Mid' | 'Low')[] = ['All', 'High', 'Mid', 'Low'];
 const FILL_PCT: Record<EnergyKey, `${number}%`> = { low: '34%', mid: '67%', high: '100%' };
 
@@ -118,11 +117,6 @@ export default function TodayScreen() {
   const [draftEnergy, setDraftEnergy] = useState<EnergyKey>('mid');
   const [draftTime, setDraftTime] = useState<string | null>(null);
   const [draftSteps, setDraftSteps] = useState<Subtask[]>([]);
-
-  // calendar
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const [monthOffset, setMonthOffset] = useState(0);
-  const [selected, setSelected] = useState(today);
 
   const refresh = useCallback(() => setTasks([...getSharedTasks()]), []);
 
@@ -186,8 +180,7 @@ export default function TodayScreen() {
       // `undefined` rather than omitted, so clearing the time actually clears it.
       await updateTask(editingId, { name, energy: fromTier(draftEnergy), priority: fromTier(draftEnergy), dueTime: draftTime ?? undefined, subtasks: cleanSteps(draftSteps) });
     } else {
-      const date = calendarOpen ? selected : today;
-      await addTask({ name, energy: fromTier(draftEnergy), priority: fromTier(draftEnergy), time: 0, type: 'Task', completed: false, dueDate: `${date}T12:00:00`, dueTime: draftTime ?? undefined, subtasks: cleanSteps(draftSteps) });
+      await addTask({ name, energy: fromTier(draftEnergy), priority: fromTier(draftEnergy), time: 0, type: 'Task', completed: false, dueDate: `${today}T12:00:00`, dueTime: draftTime ?? undefined, subtasks: cleanSteps(draftSteps) });
     }
     setComposing(false); setEditingId(null); setDraft(''); setDraftTime(null); setDraftSteps([]); refresh();
   };
@@ -202,7 +195,7 @@ export default function TodayScreen() {
     <SafeAreaView style={styles.screen} edges={['top']}>
       <SageBackground scrollY={scrollY} />
 
-      {pinned && !calendarOpen && (
+      {pinned && (
         <View style={styles.pinned}>
           <View style={styles.pinnedDot} />
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -224,152 +217,142 @@ export default function TodayScreen() {
         scrollEventThrottle={16}
         onScroll={onScroll}
       >
-        {calendarOpen ? (
-          <CalendarView
-            tasks={tasks}
-            today={today}
-            selected={selected}
-            setSelected={setSelected}
-            monthOffset={monthOffset}
-            setMonthOffset={setMonthOffset}
-            onClose={() => setCalendarOpen(false)}
-            onAdd={startAdd}
-            composer={composing ? <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, draftTime, setDraftTime, draftSteps, setDraftSteps, saveTask, onCancel: () => setComposing(false) }} /> : null}
-          />
-        ) : (
-          <>
-            <View style={styles.header}>
-              <View>
-                <Text style={styles.dateLabel}>{todayLabel}</Text>
-                <Text style={styles.greeting}>{greeting}</Text>
-              </View>
-              <View style={styles.headerBtns}>
-                <Pressable onPress={startAdd} style={[styles.iconBtn, styles.iconBtnPrimary]} hitSlop={6}>
-                  <Plus size={20} color={sage.onPrimary} strokeWidth={2.5} />
-                </Pressable>
-                <Pressable onPress={() => setCalendarOpen(true)} style={[styles.iconBtn, styles.iconBtnPlain]} hitSlop={6}>
-                  <View style={styles.calIconTop} />
-                  <View style={styles.calIconBody} />
-                </Pressable>
-                {/*
-                  The only route into Settings, which holds account deletion and
-                  the Privacy/Terms links. A store reviewer has to find this, so
-                  it sits on the first screen rather than behind a menu.
-                */}
-                <Pressable
-                  onPress={() => router.push('/(tabs)/settings')}
-                  style={[styles.iconBtn, styles.iconBtnPlain]}
-                  hitSlop={6}
-                  accessibilityRole="button"
-                  accessibilityLabel="Settings"
-                >
-                  <Settings size={19} color={sage.fgSecondary} strokeWidth={1.9} />
-                </Pressable>
-              </View>
-            </View>
-
-            <MascotPerch id="energy" mood="idle">
-            <View style={styles.card}>
-              <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
-              <View style={styles.energyRow}>
-                {(['low', 'mid', 'high'] as EnergyKey[]).map((k) => {
-                  const on = selectedEnergy === k;
-                  return (
-                    <Pressable key={k} onPress={() => setSelectedEnergy(k)} style={[styles.energySeg, on && { backgroundColor: energy[k].bg }]}>
-                      <View style={[styles.energyBar, { width: energy[k].barW, backgroundColor: on ? energy[k].bar : sage.ruleStrong }]} />
-                      <Text style={[styles.energySegLabel, { color: on ? energy[k].fg : sage.fgFaint }]}>{energy[k].label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <View style={styles.energyFillTrack}>
-                <View style={[styles.energyFillBar, { width: FILL_PCT[selectedEnergy], backgroundColor: energy[selectedEnergy].bar }]} />
-              </View>
-              <Text style={styles.insight}>{energyInsight[selectedEnergy]}</Text>
-            </View>
-            </MascotPerch>
-
-            <MascotPerch id="progress" mood="idle">
-            <View style={[styles.card, styles.progressCard]}>
-              <ProgressRing pct={pct} />
-              <View style={{ flex: 1 }}>
-                <Text style={text.cardTitle}>{done} of {todays.length} done today</Text>
-                <Text style={[text.meta, { marginTop: 2 }]}>No streaks, no pressure.</Text>
-              </View>
-              <Text style={styles.pctText}>{pct}%</Text>
-            </View>
-            </MascotPerch>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ gap: 8 }}>
-              {FILTERS.map((f) => {
-                const on = filter === f;
-                return (
-                  <Pressable key={f} onPress={() => setFilter(f)} style={[styles.chip, on ? styles.chipOn : styles.chipOff]}>
-                    <Text style={[styles.chipText, { color: on ? sage.onPrimary : sage.primaryInk }]}>{f}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            {composing && (
-              <MascotPerch id="composer" mood="work" call>
-                <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, draftTime, setDraftTime, draftSteps, setDraftSteps, saveTask, onCancel: () => setComposing(false) }} />
-              </MascotPerch>
-            )}
-
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.dateLabel}>{todayLabel}</Text>
+            <Text style={styles.greeting}>{greeting}</Text>
+          </View>
+          <View style={styles.headerBtns}>
+            <Pressable onPress={startAdd} style={[styles.iconBtn, styles.iconBtnPrimary]} hitSlop={6}>
+              <Plus size={20} color={sage.onPrimary} strokeWidth={2.5} />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/(tabs)/calendar')}
+              style={[styles.iconBtn, styles.iconBtnPlain]}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Calendar"
+            >
+              <View style={styles.calIconTop} />
+              <View style={styles.calIconBody} />
+            </Pressable>
             {/*
-              The section wrapper is animated as well as the cards inside it. An
-              exiting card whose parent unmounts in the same commit never gets to
-              play its exit — the view is gone — so when a whole section empties
-              out it is the section that folds away, taking its cards with it.
+              The only route into Settings, which holds account deletion and
+              the Privacy/Terms links. A store reviewer has to find this, so
+              it sits on the first screen rather than behind a menu.
             */}
-            {matched.length > 0 && (
-              <Reanimated.View entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                <SectionRule label="Matched to your energy" />
-                <View style={{ gap: 10 }}>
-                  {matched.map((t) => (
-                    <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
-                        <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
-                      </MascotPerch>
-                    </Reanimated.View>
-                  ))}
-                </View>
-              </Reanimated.View>
-            )}
+            <Pressable
+              onPress={() => router.push('/(tabs)/settings')}
+              style={[styles.iconBtn, styles.iconBtnPlain]}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+            >
+              <Settings size={19} color={sage.fgSecondary} strokeWidth={1.9} />
+            </Pressable>
+          </View>
+        </View>
 
-            {rest.length > 0 && (
-              <Reanimated.View entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                <SectionRule label={matched.length ? 'Everything else' : 'All tasks'} />
-                <View style={{ gap: 10 }}>
-                  {rest.map((t) => (
-                    <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                      <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
-                        <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
-                      </MascotPerch>
-                    </Reanimated.View>
-                  ))}
-                </View>
-              </Reanimated.View>
-            )}
+        <MascotPerch id="energy" mood="idle">
+        <View style={styles.card}>
+          <Text style={text.cardTitle}>How&apos;s your energy right now?</Text>
+          <View style={styles.energyRow}>
+            {(['low', 'mid', 'high'] as EnergyKey[]).map((k) => {
+              const on = selectedEnergy === k;
+              return (
+                <Pressable key={k} onPress={() => setSelectedEnergy(k)} style={[styles.energySeg, on && { backgroundColor: energy[k].bg }]}>
+                  <View style={[styles.energyBar, { width: energy[k].barW, backgroundColor: on ? energy[k].bar : sage.ruleStrong }]} />
+                  <Text style={[styles.energySegLabel, { color: on ? energy[k].fg : sage.fgFaint }]}>{energy[k].label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.energyFillTrack}>
+            <View style={[styles.energyFillBar, { width: FILL_PCT[selectedEnergy], backgroundColor: energy[selectedEnergy].bar }]} />
+          </View>
+          <Text style={styles.insight}>{energyInsight[selectedEnergy]}</Text>
+        </View>
+        </MascotPerch>
 
-            {todays.length === 0 && (
-              <Reanimated.View style={styles.empty} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                <Text style={styles.emptyText}>Nothing today. A clear day is allowed.</Text>
-              </Reanimated.View>
-            )}
+        <MascotPerch id="progress" mood="idle">
+        <View style={[styles.card, styles.progressCard]}>
+          <ProgressRing pct={pct} />
+          <View style={{ flex: 1 }}>
+            <Text style={text.cardTitle}>{done} of {todays.length} done today</Text>
+            <Text style={[text.meta, { marginTop: 2 }]}>No streaks, no pressure.</Text>
+          </View>
+          <Text style={styles.pctText}>{pct}%</Text>
+        </View>
+        </MascotPerch>
 
-            {/*
-              There are tasks today, just none in this filter. Without something
-              here the list fades out and nothing fades back in, which reads as
-              the animation having broken rather than as an answer.
-            */}
-            {todays.length > 0 && matched.length === 0 && rest.length === 0 && (
-              <Reanimated.View style={styles.empty} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
-                <Text style={styles.emptyText}>Nothing at this energy right now.</Text>
-              </Reanimated.View>
-            )}
-          </>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ gap: 8 }}>
+          {FILTERS.map((f) => {
+            const on = filter === f;
+            return (
+              <Pressable key={f} onPress={() => setFilter(f)} style={[styles.chip, on ? styles.chipOn : styles.chipOff]}>
+                <Text style={[styles.chipText, { color: on ? sage.onPrimary : sage.primaryInk }]}>{f}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {composing && (
+          <MascotPerch id="composer" mood="work" call>
+            <Composer {...{ editingId, draft, setDraft, draftEnergy, setDraftEnergy, draftTime, setDraftTime, draftSteps, setDraftSteps, saveTask, onCancel: () => setComposing(false) }} />
+          </MascotPerch>
+        )}
+
+        {/*
+          The section wrapper is animated as well as the cards inside it. An
+          exiting card whose parent unmounts in the same commit never gets to
+          play its exit — the view is gone — so when a whole section empties
+          out it is the section that folds away, taking its cards with it.
+        */}
+        {matched.length > 0 && (
+          <Reanimated.View entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+            <SectionRule label="Matched to your energy" />
+            <View style={{ gap: 10 }}>
+              {matched.map((t) => (
+                <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+                  <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
+                    <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
+                  </MascotPerch>
+                </Reanimated.View>
+              ))}
+            </View>
+          </Reanimated.View>
+        )}
+
+        {rest.length > 0 && (
+          <Reanimated.View entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+            <SectionRule label={matched.length ? 'Everything else' : 'All tasks'} />
+            <View style={{ gap: 10 }}>
+              {rest.map((t) => (
+                <Reanimated.View key={t.id} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+                  <MascotPerch id={`task-${t.id}`} mood={t.completed ? 'rest' : 'idle'}>
+                    <TaskCard task={t} pinned={t.id === pinnedId} onToggle={toggle} onEdit={startEdit} onRemove={remove} onPin={setPinnedId} onToggleSubtask={tickSubtask} />
+                  </MascotPerch>
+                </Reanimated.View>
+              ))}
+            </View>
+          </Reanimated.View>
+        )}
+
+        {todays.length === 0 && (
+          <Reanimated.View style={styles.empty} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+            <Text style={styles.emptyText}>Nothing today. A clear day is allowed.</Text>
+          </Reanimated.View>
+        )}
+
+        {/*
+          There are tasks today, just none in this filter. Without something
+          here the list fades out and nothing fades back in, which reads as
+          the animation having broken rather than as an answer.
+        */}
+        {todays.length > 0 && matched.length === 0 && rest.length === 0 && (
+          <Reanimated.View style={styles.empty} entering={OPEN} exiting={CLOSE} layout={REFLOW}>
+            <Text style={styles.emptyText}>Nothing at this energy right now.</Text>
+          </Reanimated.View>
         )}
       </Reanimated.ScrollView>
     </SafeAreaView>
@@ -676,91 +659,6 @@ function Composer({ editingId, draft, setDraft, draftEnergy, setDraftEnergy, dra
   );
 }
 
-function CalendarView({ tasks, today, selected, setSelected, monthOffset, setMonthOffset, onClose, onAdd, composer }: {
-  tasks: Task[]; today: string; selected: string; setSelected: (s: string) => void;
-  monthOffset: number; setMonthOffset: (fn: (n: number) => number) => void; onClose: () => void; onAdd: () => void; composer: React.ReactNode;
-}) {
-  const now = new Date();
-  const base = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
-  const firstDay = base.getDay();
-  const daysIn = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysIn; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const selDate = new Date(selected + 'T12:00:00');
-  const dayTasks = tasks.filter((t) => dayOf(t, today) === selected);
-  const dayActive = dayTasks.filter((t) => !t.completed);
-  const dayDone = dayTasks.filter((t) => t.completed);
-
-  return (
-    <>
-      <View style={styles.calHeader}>
-        <Pressable onPress={onClose} style={[styles.iconBtn, styles.iconBtnPlain]} hitSlop={6}>
-          <Text style={styles.backArrow}>‹</Text>
-        </Pressable>
-        <Text style={[text.title, { flex: 1 }]}>Calendar</Text>
-        <Pressable onPress={() => { setMonthOffset(() => 0); setSelected(today); }} style={styles.todayPill}><Text style={styles.todayPillText}>Today</Text></Pressable>
-        <Pressable onPress={onAdd} style={[styles.iconBtn, styles.iconBtnPrimary]} hitSlop={6}><Plus size={18} color={sage.onPrimary} strokeWidth={2.5} /></Pressable>
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.monthRow}>
-          <Pressable onPress={() => setMonthOffset((n) => n - 1)} style={styles.monthNav}><Text style={styles.monthArrow}>‹</Text></Pressable>
-          <Text style={text.h2}>{MONTHS[base.getMonth()]} {base.getFullYear()}</Text>
-          <Pressable onPress={() => setMonthOffset((n) => n + 1)} style={styles.monthNav}><Text style={styles.monthArrow}>›</Text></Pressable>
-        </View>
-        <View style={styles.weekRow}>
-          {DAYS.map((d) => <Text key={d} style={styles.weekday}>{d[0]}{d[1]}</Text>)}
-        </View>
-        <View style={styles.grid}>
-          {cells.map((d, i) => {
-            if (d === null) return <View key={`e${i}`} style={styles.dayCell} />;
-            const key = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const has = tasks.some((t) => dayOf(t, today) === key);
-            const isSel = key === selected;
-            const isToday = key === today;
-            return (
-              <Pressable key={key} onPress={() => setSelected(key)} style={[styles.dayCell, { backgroundColor: isSel ? sage.primary : isToday ? sage.fillGreen : 'transparent' }]}>
-                <Text style={[styles.dayNum, { color: isSel ? sage.onPrimary : isToday ? sage.primaryDeep : sage.fgBody }]}>{d}</Text>
-                <View style={[styles.dayDot, { backgroundColor: has ? (isSel ? 'rgba(255,255,255,.8)' : sage.leafSoft) : 'transparent' }]} />
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <Text style={[text.cardTitle, { marginTop: 18 }]}>
-        {(selected === today ? 'Today · ' : '') + `${DAYS[selDate.getDay()]} ${selDate.getDate()} ${MONTHS[selDate.getMonth()]}`}
-      </Text>
-
-      {composer}
-
-      <View style={{ marginTop: 12, gap: 9 }}>
-        {dayActive.length > 0 && <Text style={[text.label, { marginHorizontal: 2 }]}>Active</Text>}
-        {dayActive.map((t) => (
-          <View key={t.id} style={styles.calRow}>
-            <View style={[styles.calDot, { backgroundColor: energy[toTier(t.energy)].fg }]} />
-            <Text style={[text.itemTitle, { flex: 1 }]}>{t.name}</Text>
-            <Text style={[styles.tag, { color: energy[toTier(t.energy)].fg, backgroundColor: energy[toTier(t.energy)].bg }]}>{energy[toTier(t.energy)].label}</Text>
-          </View>
-        ))}
-        {dayDone.length > 0 && <Text style={[text.labelFaint, { marginHorizontal: 2, marginTop: 8 }]}>Completed</Text>}
-        {dayDone.map((t) => (
-          <View key={t.id} style={[styles.calRow, { backgroundColor: sage.fill }]}>
-            <View style={styles.calCheck}><Check size={11} color={sage.onPrimary} strokeWidth={3} /></View>
-            <Text style={[text.itemTitle, styles.taskDone, { flex: 1 }]}>{t.name}</Text>
-          </View>
-        ))}
-        {dayTasks.length === 0 && (
-          <View style={styles.empty}><Text style={styles.emptyText}>Nothing scheduled. A clear day is allowed.</Text></View>
-        )}
-      </View>
-    </>
-  );
-}
-
 /* ------------------------------------------------------------------ *
  * Styles
  * ------------------------------------------------------------------ */
@@ -866,20 +764,4 @@ const styles = StyleSheet.create({
   empty: { backgroundColor: sage.surface, borderRadius: 20, padding: 22, alignItems: 'center', ...shadow.soft, ...curve },
   emptyText: { fontFamily: font.body, fontSize: 13, color: sage.fgFaint, textAlign: 'center' },
 
-  calHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingBottom: 18 },
-  backArrow: { fontFamily: font.headingBold, fontSize: 24, color: sage.fgSecondary, marginTop: -4 },
-  todayPill: { borderRadius: 13, paddingVertical: 9, paddingHorizontal: 15, backgroundColor: sage.fillGreen, ...curve },
-  todayPillText: { fontFamily: font.heading, fontSize: 12.5, color: sage.primaryDeep },
-  monthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  monthNav: { width: 34, height: 34, borderRadius: 12, backgroundColor: sage.fill, alignItems: 'center', justifyContent: 'center', ...curve },
-  monthArrow: { fontFamily: font.headingBold, fontSize: 18, color: sage.fgSecondary, marginTop: -2 },
-  weekRow: { flexDirection: 'row', marginBottom: 6 },
-  weekday: { flex: 1, textAlign: 'center', fontFamily: font.bodySemi, fontSize: 10.5, color: sage.fgFaint },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, borderRadius: 13, alignItems: 'center', justifyContent: 'center', gap: 3 },
-  dayNum: { fontFamily: font.heading, fontSize: 13 },
-  dayDot: { width: 4, height: 4, borderRadius: 2 },
-  calRow: { backgroundColor: sage.surface, borderRadius: 20, padding: 14, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow.soft, ...curve },
-  calDot: { width: 8, height: 8, borderRadius: 4 },
-  calCheck: { width: 16, height: 16, borderRadius: 8, backgroundColor: sage.leafSoft, alignItems: 'center', justifyContent: 'center' },
 });

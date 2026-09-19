@@ -2,6 +2,12 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // The tests under test/ run straight through Node, which strips the types
+    // and resolves ESM — so their imports have to carry the .ts extension.
+    // Nothing emits from tsc here (Metro does the compiling), so noEmit is
+    // just saying out loud what was already true.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "paths": {
       "@/*": [
         "./*"

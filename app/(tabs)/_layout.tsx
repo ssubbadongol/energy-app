@@ -180,6 +180,12 @@ export default function TabLayout() {
 
           {/* ── Routes reachable via router.push, but off the tab bar ── */}
           {/*
+            The calendar. Off the tab bar because five tabs is already the
+            limit of a bar people can read at a glance, and it is somewhere you
+            go on purpose — from the button on the Today header.
+          */}
+          <Tabs.Screen name="calendar" options={{ href: null }} />
+          {/*
             Settings is off the tab bar but must stay easy to find: it holds
             account deletion (5.1.1(v)) and the Privacy/Terms links (3.1.2), and
             a reviewer has to be able to reach both. The Today header opens it.
