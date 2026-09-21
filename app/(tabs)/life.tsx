@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { Bell, BellOff, Check, Minus, Pencil, Plus } from 'lucide-react-native';
+import { Bell, BellOff, Check, Pencil } from 'lucide-react-native';
 import React, { useCallback, useRef, useState } from 'react';
 import { type GestureResponderEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Reanimated from 'react-native-reanimated';
@@ -20,6 +20,9 @@ import {
   updateLifeTask,
 } from '../lifeTaskStorage';
 import { syncLifeReminders } from '../lifeReminderService';
+import { isFixedTime, spanLabel } from '../lifeSchedule';
+import { TimeSpanSheet } from '@/components/sage/TimeSpanSheet';
+import { getUserProfileSync } from '../userProfileStorage';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 
 const SECTIONS: { key: TimeOfDay; title: string; hours: string }[] = [
@@ -30,18 +33,21 @@ const SECTIONS: { key: TimeOfDay; title: string; hours: string }[] = [
 
 const EMOJIS = ['💧', '🍽', '🚶', '🏃', '😴', '🚿', '💊', '🌱', '🧹', '📚'];
 
-const hourLabel = (h: number) => {
-  const hh = ((h % 24) + 24) % 24;
-  const ampm = hh >= 12 ? 'PM' : 'AM';
-  const base = hh % 12 === 0 ? 12 : hh % 12;
-  return `${base} ${ampm}`;
-};
-const windowLabel = (a: number, b: number) => {
-  const sa = hourLabel(a);
-  const sb = hourLabel(b);
-  if (sa.slice(-2) === sb.slice(-2)) return `${sa.replace(' ' + sa.slice(-2), '')}–${sb}`;
-  return `${sa}–${sb}`;
-};
+/*
+  Labels come from `lifeSchedule` so the card, the notification and this editor
+  cannot drift apart — they used to be three copies of the same formatting.
+  `spanLabel` also collapses to a single time when start and end are equal.
+*/
+/*
+  `timeWindow` is still written to storage, but it is no longer what gets
+  drawn. It is a fixed 12-hour string kept so `parseTimeWindow` can still read
+  rows saved before the hours were stored — and because a stored label would
+  go stale the moment someone switched the clock setting, leaving old routines
+  reading "9 PM" beside new ones reading "21:00".
+
+  Everything on screen is derived from `startHour`/`endHour` instead.
+*/
+const storedLabel = (a: number, b: number) => spanLabel(a, b, '12h');
 
 const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as TimeOfDay, start: 9, end: 11, reps: 1 };
 
@@ -141,7 +147,7 @@ export default function LifeScreen() {
         // stored "6–12 PM" is not rewritten into an equivalent-but-different
         // string just for opening the editor. The hours always follow the draft,
         // which `editItem` seeds from the item itself.
-        timeWindow: windowTouched || !existing ? windowLabel(draft.start, draft.end) : existing.timeWindow,
+        timeWindow: windowTouched || !existing ? storedLabel(draft.start, draft.end) : existing.timeWindow,
         startHour: draft.start,
         endHour: draft.end,
         repeats: draft.reps > 1 ? draft.reps : undefined,
@@ -151,7 +157,7 @@ export default function LifeScreen() {
       await addLifeTask({
         emoji: draft.emoji,
         name: draft.name.trim(),
-        timeWindow: windowLabel(draft.start, draft.end),
+        timeWindow: storedLabel(draft.start, draft.end),
         startHour: draft.start,
         endHour: draft.end,
         remind: true,
@@ -165,8 +171,25 @@ export default function LifeScreen() {
     refreshAndReschedule();
   };
 
-  const setStart = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v + 1, d.end) })); };
-  const setEnd = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, end: Math.max(1, Math.min(24, v)), start: Math.min(v - 1, d.start) })); };
+  const clock = getUserProfileSync().clock;
+  const [pickingTime, setPickingTime] = useState(false);
+  const fixedTime = isFixedTime({ startHour: draft.start, endHour: draft.end });
+
+  /*
+    Ordering is left to the setters rather than to the wheels' contents. Both
+    wheels offer the whole day, and moving one past the other drags it along —
+    which is forgiving, and avoids a wheel whose rows appear and disappear
+    underneath the finger as the other one moves.
+  */
+
+  /*
+    The other end is pushed along rather than blocked, so dragging start up to
+    meet end lands on a fixed time instead of stopping an hour short. `v` not
+    `v + 1` is the whole change: the old clamps kept a minimum one-hour gap and
+    made "exactly 9 PM" unreachable.
+  */
+  const setStart = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v, d.end) })); };
+  const setEnd = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, end: Math.max(0, Math.min(24, v)), start: Math.min(v, d.start) })); };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -191,7 +214,7 @@ export default function LifeScreen() {
                   <Text style={styles.emoji}>{i.emoji}</Text>
                   <View style={{ flex: 1, minWidth: 0, opacity: i.enabled ? 1 : 0.5 }}>
                     <Text style={styles.setupName}>{i.name}</Text>
-                    <Text style={styles.setupWindow}>{i.repeats && i.repeats > 1 ? `${i.timeWindow} · ${i.repeats}× a day` : i.timeWindow}</Text>
+                    <Text style={styles.setupWindow}>{i.repeats && i.repeats > 1 ? `${spanLabel(i.startHour, i.endHour, clock)} · ${i.repeats}× a day` : spanLabel(i.startHour, i.endHour, clock)}</Text>
                   </View>
                   <View style={styles.rowActions}>
                   <Pressable
@@ -250,19 +273,25 @@ export default function LifeScreen() {
               </View>
 
               <View style={{ marginTop: 18 }}>
-                <View style={styles.stepperRow}>
-                  <Text style={styles.stepperLabel}>Time window</Text>
-                  <Text style={styles.stepperValue}>{editingId && !windowTouched ? (items.find((i) => i.id === editingId)?.timeWindow ?? windowLabel(draft.start, draft.end)) : windowLabel(draft.start, draft.end)}</Text>
-                </View>
-                <View style={styles.stepper}>
-                  <Text style={styles.stepperCap}>starts</Text>
-                  <Stepper onDec={() => setStart(draft.start - 1)} onInc={() => setStart(draft.start + 1)} value={hourLabel(draft.start)} />
-                  <Text style={styles.stepperCap}>ends</Text>
-                  <Stepper onDec={() => setEnd(draft.end - 1)} onInc={() => setEnd(draft.end + 1)} value={hourLabel(draft.end)} />
-                </View>
+                <Text style={styles.stepperLabel}>{fixedTime ? 'Fixed time' : 'Time window'}</Text>
+                {/*
+                  A button, not the wheels themselves. Inline they were two
+                  vertical scroll views inside this panel's vertical scroll
+                  view, so the panel took every drag and the wheels could not
+                  be turned at all.
+                */}
+                <Pressable
+                  onPress={() => setPickingTime(true)}
+                  style={styles.timeBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Change the time, currently ${spanLabel(draft.start, draft.end, clock)}`}
+                >
+                  <Text style={styles.timeBtnValue}>{spanLabel(draft.start, draft.end, clock)}</Text>
+                  <Text style={styles.timeBtnHint}>Tap to change</Text>
+                </Pressable>
               </View>
 
-              <View style={styles.repsRow}>
+              <View style={[styles.repsRow, fixedTime && { display: 'none' }]}>
                 <Text style={styles.stepperLabel}>Times a day</Text>
                 <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
                   {[1, 2, 3, 4].map((n) => {
@@ -333,7 +362,7 @@ export default function LifeScreen() {
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[styles.dailyName, full && { color: sage.fgFaint, textDecorationLine: 'line-through' }]}>{i.name}</Text>
                             <View style={styles.windowRow}>
-                              <Text style={styles.setupWindow}>{i.timeWindow}</Text>
+                              <Text style={styles.setupWindow}>{spanLabel(i.startHour, i.endHour, clock)}</Text>
                               {i.remind && <Bell size={10} color={sage.fgFaint} strokeWidth={2.5} />}
                             </View>
                           </View>
@@ -352,17 +381,17 @@ export default function LifeScreen() {
           </>
         )}
       </Reanimated.ScrollView>
-    </SafeAreaView>
-  );
-}
 
-function Stepper({ value, onInc, onDec }: { value: string; onInc: () => void; onDec: () => void }) {
-  return (
-    <View style={styles.stepperCtrl}>
-      <Pressable onPress={onDec} style={styles.stepperBtn} hitSlop={4}><Minus size={14} color={sage.primaryInk} strokeWidth={2.5} /></Pressable>
-      <Text style={styles.stepperNum}>{value}</Text>
-      <Pressable onPress={onInc} style={styles.stepperBtn} hitSlop={4}><Plus size={14} color={sage.primaryInk} strokeWidth={2.5} /></Pressable>
-    </View>
+      <TimeSpanSheet
+        visible={pickingTime}
+        startHour={draft.start}
+        endHour={draft.end}
+        clock={clock}
+        onChangeStart={setStart}
+        onChangeEnd={setEnd}
+        onClose={() => setPickingTime(false)}
+      />
+    </SafeAreaView>
   );
 }
 
@@ -403,14 +432,19 @@ const styles = StyleSheet.create({
   pickerBtn: { flex: 1, paddingVertical: 9, borderRadius: 12, alignItems: 'center', ...curve },
   pickerText: { fontFamily: font.bodySemi, fontSize: 11.5, letterSpacing: 0.5, textTransform: 'uppercase' },
 
-  stepperRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   stepperLabel: { fontFamily: font.heading, fontSize: 12.5, color: sage.primaryInk },
-  stepperValue: { fontFamily: font.heading, fontSize: 13, color: sage.primaryDeep },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' },
-  stepperCap: { fontFamily: font.body, fontSize: 11, color: sage.fgFaint },
-  stepperCtrl: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: sage.fillAlt, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 4, ...curve },
-  stepperBtn: { width: 26, height: 26, borderRadius: 9, backgroundColor: sage.surface, alignItems: 'center', justifyContent: 'center', ...curve },
-  stepperNum: { fontFamily: font.heading, fontSize: 13, color: sage.fgBody, minWidth: 46, textAlign: 'center' },
+  timeBtn: {
+    marginTop: 8,
+    backgroundColor: sage.fillGreen,
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    gap: 2,
+    ...curve,
+  },
+  timeBtnValue: { fontFamily: font.headingBold, fontSize: 20, color: sage.primaryDeep },
+  timeBtnHint: { fontFamily: font.body, fontSize: 11.5, color: sage.primaryInk },
   repsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
   repBtn: { width: 32, height: 32, borderRadius: 11, alignItems: 'center', justifyContent: 'center', ...curve },
 

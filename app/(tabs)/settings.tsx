@@ -52,11 +52,14 @@ import {
 import { AuthSheet } from '../../components/account/AuthSheet';
 import { deleteAccount } from '../deleteAccount';
 import { MANAGE_SUBSCRIPTION, SUPPORT_EMAIL, legal, openLegal } from '../legal';
+import { CLOCK_FORMATS, type ClockFormat, clockFormatExample, clockFormatLabel } from '../clockFormat';
+import { getUserProfileSync, saveUserProfile } from '../userProfileStorage';
 import { restore } from '../entitlements';
 
 export default function SettingsScreen() {
   const { isPro, refresh } = useEntitlement();
   const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [clock, setClock] = useState<ClockFormat>(() => getUserProfileSync().clock);
   const [authOpen, setAuthOpen] = useState<'create' | 'signin' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -334,6 +337,43 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ---- Display ---- */}
+        <Text style={styles.sectionLabel}>CLOCK</Text>
+        <View style={styles.card}>
+          <Text style={text.cardTitle}>How times are written</Text>
+          <Text style={[text.meta, { marginTop: 3 }]}>
+            Task times, life routines and reminders all follow this.
+          </Text>
+          <View style={styles.segment}>
+            {CLOCK_FORMATS.map((option) => {
+              const on = clock === option;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => {
+                    if (on) return;
+                    haptic('selection');
+                    setClock(option);
+                    void saveUserProfile({ clock: option });
+                  }}
+                  style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${clockFormatLabel[option]} clock, for example ${clockFormatExample[option]}`}
+                >
+                  <Text style={[styles.segmentLabel, on && { color: sage.primaryDeep }]}>
+                    {clockFormatLabel[option]}
+                  </Text>
+                  {/* The example does the explaining — "12-hour" is a name, "9 PM" is the answer. */}
+                  <Text style={[styles.segmentExample, on && { color: sage.primaryInk }]}>
+                    {clockFormatExample[option]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {/* ---- Legal. Apple 3.1.2 wants these reachable from inside the app. ---- */}
         <Text style={styles.sectionLabel}>ABOUT</Text>
         <View style={styles.card}>
@@ -462,6 +502,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 2,
   },
+
+  segment: { flexDirection: 'row', gap: 8, marginTop: 14, backgroundColor: sage.fill, borderRadius: 16, padding: 5 },
+  segmentBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', gap: 2, ...curve },
+  segmentBtnOn: { backgroundColor: sage.fillGreen },
+  segmentLabel: { fontFamily: font.heading, fontSize: 13, color: sage.fgFaint },
+  segmentExample: { fontFamily: font.body, fontSize: 11.5, color: sage.fgFaint },
 
   card: {
     backgroundColor: sage.surface,

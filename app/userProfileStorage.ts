@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { ClockFormat } from './clockFormat';
 
 export type MentorTone = 'Gentle' | 'Direct';
 export type EnergyTier = 'high' | 'mid' | 'low';
@@ -8,6 +9,8 @@ export interface UserProfile {
   mentorTone: MentorTone;
   defaultEnergy: EnergyTier;
   focusEnabled: boolean;
+  /** Whether times read as "9 PM" or "21:00". Settings → Clock. */
+  clock: ClockFormat;
 }
 
 const PROFILE_KEY = '@sf_user_profile';
@@ -18,6 +21,7 @@ export const defaultProfile: UserProfile = {
   mentorTone: 'Gentle',
   defaultEnergy: 'mid',
   focusEnabled: true,
+  clock: '12h',
 };
 
 let cache: UserProfile | null = null;

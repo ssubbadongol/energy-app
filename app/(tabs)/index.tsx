@@ -25,7 +25,8 @@ import {
   toggleTaskCompletion,
   updateTask,
 } from '../taskStorage';
-import { loadUserProfile } from '../userProfileStorage';
+import { formatClock } from '../clockFormat';
+import { getUserProfileSync, loadUserProfile } from '../userProfileStorage';
 import { curve, energy, energyInsight, type EnergyKey, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 import { duration, ease } from '@/theme/tokens';
 
@@ -73,11 +74,11 @@ const iso = (d: Date) =>
 const dayOf = (t: Task, today: string) => (t.dueDate ? t.dueDate.slice(0, 10) : today);
 const metaFor = (t: Task) => (t.time > 0 ? `~${t.time} min` : t.type && t.type !== 'Task' ? t.type : 'anytime');
 
-/** "14:30" -> "2:30 PM". Stored 24h so it sorts and compares; shown 12h. */
-const formatDueTime = (hhmm: string) => {
-  const [h, m] = hhmm.split(':').map(Number);
-  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
-};
+/**
+ * "14:30" -> "2:30 PM", or "14:30". Stored 24h so it sorts and compares, and
+ * converted only here, against whichever clock the user reads.
+ */
+const formatDueTime = (hhmm: string) => formatClock(hhmm, getUserProfileSync().clock);
 
 const pad = (n: number) => String(n).padStart(2, '0');
 

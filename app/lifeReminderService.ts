@@ -1,11 +1,15 @@
 /**
  * Nudges inside a life task's window.
  *
- * A life task is not a deadline — "shower" is not due at 6am, it is something
- * that should happen somewhere between 6 and 10. So these are not one alarm at
- * a due time; they are a couple of taps on the shoulder spread through the
- * window, and the body says the window is still open rather than that the user
- * is late.
+ * A life task is usually not a deadline — "shower" is not due at 6am, it is
+ * something that should happen somewhere between 6 and 10. So these are not
+ * one alarm at a due time; they are a couple of taps on the shoulder spread
+ * through the window, and the body says the window is still open rather than
+ * that the user is late.
+ *
+ * A task whose start and end are the same hour *is* a deadline, and gets a
+ * single nudge on the hour. See `lifeSchedule.ts`, which holds the arithmetic
+ * and the wording for both shapes.
  *
  * They are daily repeating local notifications, so they survive the app being
  * closed and need no server. The trade is the same one `reminderService` makes:
@@ -16,52 +20,17 @@
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import type { LifeTask } from './lifeTaskStorage';
+import { reminderBody, reminderTimesFor } from './lifeSchedule';
+import { getUserProfileSync } from './userProfileStorage';
 import { devLog } from './devLog';
+
+export { reminderTimesFor };
 
 /** The channel `setupNotifications` actually creates. */
 const CHANNEL_ID = 'task-focus';
 
 /** Every identifier this module owns starts with this, so it can clean up. */
 const PREFIX = 'life-remind-';
-
-/**
- * When to nudge, as minutes past midnight.
- *
- * Two by default — the count the routine was asked for — but a task the user
- * does three times a day gets three, because two reminders for three glasses of
- * water is a reminder that is wrong twice.
- *
- * They sit at even fractions *inside* the window, never on its edges: a nudge
- * at 6:00 for a 6–10 window is just an alarm, and one at 10:00 arrives when the
- * window has already closed. For 6–10 with two reminders that lands on 7:20 and
- * 8:40. Rounded to five minutes because a notification at 8:41 looks like the
- * output of a formula, which is what it is.
- */
-export function reminderTimesFor(task: Pick<LifeTask, 'startHour' | 'endHour' | 'repeats'>): number[] {
-  const count = Math.max(2, task.repeats ?? 1);
-  const start = task.startHour * 60;
-  const span = (task.endHour - task.startHour) * 60;
-  if (span <= 0) return [];
-
-  const times: number[] = [];
-  for (let i = 1; i <= count; i++) {
-    const at = Math.round((start + (span * i) / (count + 1)) / 5) * 5;
-    // A window ending at midnight would otherwise round past the end of the day.
-    times.push(Math.min(at, 24 * 60 - 1));
-  }
-  return times;
-}
-
-function bodyFor(task: LifeTask): string {
-  const closes = hourLabel(task.endHour);
-  return `It's ${task.name.toLowerCase()} time — your window is open until ${closes}.`;
-}
-
-function hourLabel(hour: number): string {
-  const h = ((hour % 24) + 24) % 24;
-  const meridiem = h >= 12 ? 'PM' : 'AM';
-  return `${h % 12 === 0 ? 12 : h % 12} ${meridiem}`;
-}
 
 /** Drop every reminder this module has scheduled, whatever the task list says now. */
 async function cancelAll(): Promise<void> {
@@ -96,6 +65,11 @@ export async function syncLifeReminders(tasks: LifeTask[]): Promise<number> {
 
     await cancelAll();
 
+    // Read once for the whole rebuild rather than per task: the schedule is
+    // torn down and recreated on every edit, so the format cannot drift
+    // between notifications within one pass.
+    const clock = getUserProfileSync().clock;
+
     let scheduled = 0;
     for (const task of tasks) {
       if (!task.enabled || !task.remind) continue;
@@ -106,7 +80,7 @@ export async function syncLifeReminders(tasks: LifeTask[]): Promise<number> {
           identifier: `${PREFIX}${task.id}-${i}`,
           content: {
             title: `${task.emoji} ${task.name}`,
-            body: bodyFor(task),
+            body: reminderBody(task.name, task, clock),
             data: { taskId: task.id, taskType: 'life' },
           },
           trigger: {

@@ -46,6 +46,8 @@ import { useCelebrate } from '@/components/sage/Celebration';
 import { MoveSheet } from '@/components/tasks/MoveSheet';
 import { curve, energy, type EnergyKey, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
 import { duration, ease } from '@/theme/tokens';
+import { formatClock } from '../clockFormat';
+import { getUserProfileSync } from '../userProfileStorage';
 import { track } from '../monitoring';
 import {
   addDays,
@@ -89,11 +91,11 @@ const fromTier = (k: EnergyKey): Task['energy'] => (k === 'mid' ? 'medium' : k);
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** "14:30" -> "2:30 PM". Stored 24h so it sorts; shown 12h because people do. */
-const formatDueTime = (hhmm: string) => {
-  const [h, m] = hhmm.split(':').map(Number);
-  return `${h % 12 === 0 ? 12 : h % 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`;
-};
+/**
+ * "14:30" -> "2:30 PM", or "14:30". Stored 24h so it sorts and compares, and
+ * converted only here, against whichever clock the user reads.
+ */
+const formatDueTime = (hhmm: string) => formatClock(hhmm, getUserProfileSync().clock);
 
 /** Midday, matching every other `dueDate` the app writes. */
 const dueDateFor = (key: DayKey) => `${key}T12:00:00`;

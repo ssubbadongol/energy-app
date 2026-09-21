@@ -11,7 +11,13 @@ export interface LifeTask {
   timeWindow: string;
   /** Window start, as a whole hour 0–23. */
   startHour: number;
-  /** Window end, as a whole hour 1–24. Always later than `startHour`. */
+  /**
+   * Window end, as a whole hour 1–24.
+   *
+   * Equal to `startHour` when the task is a fixed time rather than a window —
+   * "take meds at 9 PM" rather than "shower some time between 6 and 10". Never
+   * earlier than it.
+   */
   endHour: number;
   /**
    * Whether to nudge inside the window. On by default — a routine you have
@@ -31,13 +37,23 @@ export interface LifeTask {
  * Read "6–10 AM" / "12–2 PM" / "6–12 PM" back into whole hours.
  *
  * Only the end of the label reliably carries a meridiem, so the start borrows
- * it and flips when that lands at or past the end — which is what makes
- * "6–12 PM" come out as 6 AM to noon rather than an empty window. Used to
- * migrate rows written before the hours were stored; new rows carry both.
+ * it and flips when that lands past the end — which is what makes "6–12 PM"
+ * come out as 6 AM to noon rather than an empty window. Used to migrate rows
+ * written before the hours were stored; new rows carry both.
+ *
+ * A label with no separator at all — "9 PM" — is a fixed time, and comes back
+ * with `startHour === endHour`.
  */
 export function parseTimeWindow(label: string): { startHour: number; endHour: number } {
   const parts = label.split(/[–—-]/);
-  if (parts.length < 2) return { startHour: 9, endHour: 11 };
+
+  if (parts.length < 2) {
+    const only = /(\d{1,2})\s*(AM|PM)?/i.exec(label.trim());
+    if (!only) return { startHour: 9, endHour: 11 };
+    const hour = Number(only[1]) % 12;
+    const h = (only[2] ?? 'AM').toUpperCase() === 'PM' ? hour + 12 : hour;
+    return { startHour: h, endHour: h };
+  }
 
   const read = (part: string) => {
     const m = /(\d{1,2})\s*(AM|PM)?/i.exec(part.trim());
@@ -56,11 +72,13 @@ export function parseTimeWindow(label: string): { startHour: number; endHour: nu
   const endHour = to24(end.hour, endMeridiem);
 
   let startHour = to24(start.hour, start.meridiem ?? endMeridiem);
-  if (startHour >= endHour) {
+  // Only flip the borrowed meridiem when the start would land *after* the end.
+  // Landing exactly on it is a fixed time, which is now a legal shape.
+  if (startHour > endHour) {
     startHour = to24(start.hour, start.meridiem ?? (endMeridiem === 'PM' ? 'AM' : 'PM'));
   }
 
-  return startHour < endHour ? { startHour, endHour } : { startHour: 9, endHour: 11 };
+  return startHour <= endHour ? { startHour, endHour } : { startHour: 9, endHour: 11 };
 }
 
 const LIFE_TASKS_STORAGE_KEY = '@energy_life_tasks';
