@@ -126,11 +126,19 @@ First production Android build and upload keystore exist.
   gives it `com.tsuyo7.energyapp.beta`, but `google-services.json` has clients
   only for `com.tsuyo7.energyapp` and `.dev`. Register a `.beta` app or drop
   the variant.
-- **The Gemini key belongs to the wrong project.** `GEMINI_API_KEY` holds a key
-  from `gen-lang-client-0126333029`, not `soft-focus-app`. So upgrading billing
-  here will *not* move Gemini to the paid tier, and model spend would fall
-  outside the budget kill switch. Swap the secret and redeploy `mentorChat`,
-  `breakdownTask`, `moderatePodMessage` before going paid.
+- **Confirm which project the Gemini key belongs to before going paid.** It
+  was originally a key from `gen-lang-client-0126333029` — the throwaway
+  project AI Studio creates — rather than `soft-focus-app`. The secret was
+  swapped on 2026-09-19 (version 4) and `mentorChat`, `breakdownTask` and
+  `moderatePodMessage` redeployed, and the mentor was verified working after.
+  What was never verified is *which* key went in, because reading a secret is
+  blocked in this environment. Check the usage graph on
+  aistudio.google.com/apikey: the key with traffic is the live one, and it
+  should be the one in `soft-focus-app`.
+
+  It matters because the paid tier follows the **key's project**, not Blaze on
+  the Firebase project — so a key in the wrong project means paying for an
+  upgrade that never applies.
 - **Gemini is on the free tier**, which means Google may train on prompts and
   humans may read them. `public/privacy.html` discloses this honestly. When you
   move to paid, rewrite that section *and* terms.html §6, bump both dates, and
