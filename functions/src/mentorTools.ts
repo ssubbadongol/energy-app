@@ -31,6 +31,33 @@ export const TASK_TOOL_DECLARATIONS = [
   },
   {
     /**
+     * Changing a task that already exists.
+     *
+     * Without this the model has no way to express an edit, so it improvises
+     * the only way it can: delete the old task, add a new one. That reads as
+     * "I edited it" and produces two tasks the moment either half fails. It
+     * also loses the task's id, and with it any subtasks and its place in the
+     * list. An edit is one write, so give it one tool.
+     */
+    name: 'update_task',
+    description:
+      "Change something about a task the user already has — its name, priority, energy, estimated time, type or due date. Call list_tasks first so you match the right one. Always prefer this over deleting and re-adding: that loses the task's steps and its history. Only pass the fields that are actually changing.",
+    parameters: {
+      type: 'object',
+      properties: {
+        taskName: { type: 'string', description: 'The existing task, as the user refers to it.' },
+        name: { type: 'string', description: 'New title, if the title is changing.' },
+        priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+        energy: { type: 'string', enum: ['high', 'medium', 'low'] },
+        time: { type: 'number', description: 'New estimate in minutes.' },
+        type: { type: 'string', description: 'New category.' },
+        dueDate: { type: 'string', description: 'New ISO-8601 due date.' },
+      },
+      required: ['taskName'],
+    },
+  },
+  {
+    /**
      * Breaking a task down in conversation.
      *
      * The dedicated button on the task is the discoverable path; this exists so
@@ -458,6 +485,78 @@ export async function executeTaskTool(
             summary: `Broke "${target.name}" into ${steps.length} steps`,
             taskId: target.id,
             taskName: target.name,
+          },
+        };
+      }
+
+      case 'update_task': {
+        const tasks = await readTasks(uid);
+        const target = findTask(tasks, String(args.taskName ?? ''));
+        if (!target) {
+          return {
+            response: { ok: false, error: 'No matching task.', available: tasks.map((t) => t.name) },
+            effect: { tool: name, ok: false, summary: `No task matching "${args.taskName}"` },
+          };
+        }
+
+        /*
+          Only the fields actually supplied are written. A patch that filled in
+          defaults for everything the model left out would quietly reset a
+          task's energy and estimate every time someone renamed it — the kind
+          of edit nobody asked for and nobody would connect to what they said.
+        */
+        const patch: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+        const changed: string[] = [];
+
+        const newName = args.name === undefined
+          ? null
+          : String(args.name).trim().slice(0, PROMPT_LIMITS.taskName);
+        if (newName) { patch.name = newName; changed.push('name'); }
+
+        if (args.priority !== undefined) {
+          patch.priority = coerceLevel(args.priority, target.priority);
+          changed.push('priority');
+        }
+        if (args.energy !== undefined) {
+          patch.energy = coerceLevel(args.energy, target.energy);
+          changed.push('energy');
+        }
+        if (args.time !== undefined) {
+          const minutes = Number(args.time);
+          if (Number.isFinite(minutes) && minutes > 0) {
+            patch.time = Math.min(Math.round(minutes), 24 * 60);
+            changed.push('time');
+          }
+        }
+        if (args.type !== undefined) {
+          patch.type = String(args.type).slice(0, PROMPT_LIMITS.taskType);
+          changed.push('type');
+        }
+        if (args.dueDate !== undefined) {
+          patch.dueDate = args.dueDate ? String(args.dueDate).slice(0, 40) : null;
+          changed.push('due date');
+        }
+
+        if (changed.length === 0) {
+          return {
+            response: { ok: false, error: 'Nothing to change — no new values were given.' },
+            effect: { tool: name, ok: false, summary: `Nothing to change on "${target.name}"` },
+          };
+        }
+
+        // `update`, not `set` with merge: the document definitely exists, and
+        // a merge would happily create a half-formed task if the id were ever
+        // wrong, which is a worse failure than an error.
+        await db.doc(paths.userTask(uid, target.id)).update(patch);
+
+        return {
+          response: { ok: true, updated: target.name, changed },
+          effect: {
+            tool: name,
+            ok: true,
+            summary: `Updated ${changed.join(', ')} on "${newName || target.name}"`,
+            taskId: target.id,
+            taskName: newName || target.name,
           },
         };
       }
