@@ -7,7 +7,7 @@
  * corrosive possible failure. So the parts that are easy to get quietly wrong
  * get checked here rather than on a device.
  *
- *   npm run test:schedule
+ *   npm run test:unit
  *
  * Node strips the types itself; there is no build step and no test framework.
  *
@@ -38,8 +38,8 @@ import {
   waitedFor,
   weekLabel,
   weekOf,
-} from '../app/taskSchedule.ts';
-import type { Task } from '../app/taskStorage.ts';
+} from '../app/taskSchedule';
+import type { Task } from '../app/taskStorage';
 
 /** A task is mostly irrelevant here; only the three scheduling fields matter. */
 const mk = (over: Partial<Task> & { id: number }): Task => ({
