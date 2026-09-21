@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, deleteDoc, doc, getDocs, serverTimestamp, setDoc, writeBatch } from '@react-native-firebase/firestore';
 import { db, ensureAuth } from './firebase';
+import { reconcile } from './taskSync';
 
 type EnergyLevel = 'high' | 'medium' | 'low';
 type Priority = 'high' | 'medium' | 'low';
@@ -39,8 +40,32 @@ export interface Task {
 
 const TASKS_STORAGE_KEY = '@energy_tasks';
 
+/**
+ * Ids this device has seen in Firestore.
+ *
+ * This is what makes deletion work. Without it the sync cannot tell
+ * "the server deleted this" from "this was created offline and never
+ * uploaded" — both look identical from here, as a task that is local and not
+ * remote. It guessed "never uploaded", so it re-uploaded, and every delete
+ * the mentor performed was undone within a second of being made.
+ *
+ * With the set, the two cases separate cleanly: a local task whose id we have
+ * seen remotely before and which is now gone was deleted on the server, and a
+ * local task we have never managed to push is still ours to push.
+ */
+const SYNCED_IDS_KEY = '@energy_tasks_synced';
+
 let sharedTasks: Task[] = [];
+let syncedIds = new Set<number>();
 let isInitialized = false;
+
+const saveSyncedIds = async () => {
+  try {
+    await AsyncStorage.setItem(SYNCED_IDS_KEY, JSON.stringify([...syncedIds]));
+  } catch (error) {
+    console.warn('[tasks] Could not persist the synced-id set', error);
+  }
+};
 
 /* ------------------------------------------------------------------ *
  * Firestore mirror
@@ -138,6 +163,10 @@ async function mirrorUpsert(task: Task): Promise<void> {
       createdAt: serverTimestamp(),
       source: 'app',
     }, { merge: true });
+    // Only on success. A failed push must stay "never uploaded" so the next
+    // sync retries it rather than treating it as deleted and dropping it.
+    syncedIds.add(task.id);
+    void saveSyncedIds();
   } catch (err) {
     console.warn('[tasks] Could not mirror task to Firestore', err);
   }
@@ -147,6 +176,8 @@ async function mirrorDelete(id: number): Promise<void> {
   try {
     const uid = await ensureAuth();
     await deleteDoc(doc(db, 'users', uid, 'tasks', String(id)));
+    syncedIds.delete(id);
+    void saveSyncedIds();
   } catch (err) {
     console.warn('[tasks] Could not delete task from Firestore', err);
   }
@@ -156,14 +187,20 @@ async function mirrorDelete(id: number): Promise<void> {
  * Reconcile with Firestore.
  *
  * Remote wins for anything that exists in both — the mentor's writes are the
- * ones the device has not seen. Local-only tasks are pushed up rather than
- * dropped, which doubles as the one-time migration for anyone who already had
- * tasks before this feature shipped.
+ * ones the device has not seen. A task that exists remotely and not locally is
+ * adopted, because the mentor added it.
  *
- * A task that exists remotely and not locally is adopted (the mentor added
- * it); a task that exists locally and not remotely is uploaded. That does mean
- * a task deleted by the mentor while the app was closed comes back on the next
- * sync — the alternative is silently deleting offline work, which is worse.
+ * A task that exists locally and not remotely is the interesting case, and it
+ * used to be handled wrongly. It was always re-uploaded, on the assumption it
+ * had been created offline and never pushed — which meant a task the mentor
+ * had just deleted was resurrected, in Firestore as well as on the device,
+ * about a second later when the mentor screen synced. The mentor said it had
+ * deleted the task and the task stayed on the list.
+ *
+ * `syncedIds` is what tells the two apart. If we have previously pushed this
+ * id and the server no longer has it, the server deleted it and we follow. If
+ * we have never managed to push it, it is still ours to push — so offline work
+ * is still safe, which is what the old behaviour was protecting.
  */
 export const syncTasksFromFirestore = async (): Promise<Task[]> => {
   try {
@@ -176,12 +213,14 @@ export const syncTasksFromFirestore = async (): Promise<Task[]> => {
       if (task) remote.set(task.id, task);
     });
 
-    const localOnly = sharedTasks.filter((t) => !remote.has(t.id));
+    // The whole decision — what to keep, push and drop — lives in `taskSync`,
+    // where it can be tested without a device. See the note there.
+    const plan = reconcile(sharedTasks, [...remote.values()], syncedIds);
 
     // Upload whatever the server has never seen, in one round trip.
-    if (localOnly.length > 0) {
+    if (plan.toUpload.length > 0) {
       const batch = writeBatch(db);
-      localOnly.forEach((task) => {
+      plan.toUpload.forEach((task) => {
         batch.set(
           doc(db, 'users', uid, 'tasks', String(task.id)),
           { ...toRemote(task), createdAt: serverTimestamp(), source: 'app' },
@@ -194,18 +233,13 @@ export const syncTasksFromFirestore = async (): Promise<Task[]> => {
     // Remote wins field by field, not document by document. Replacing the whole
     // local task would drop anything the server's copy predates — which is how a
     // due time set on an older task disappeared on the next cold start.
-    const localById = new Map(sharedTasks.map((task) => [task.id, task]));
-    const merged = [
-      ...[...remote.values()].map((r) => {
-        const local = localById.get(r.id);
-        return local ? { ...local, ...r } : r;
-      }),
-      ...localOnly,
-    ].sort((a, b) => a.id - b.id);
-    const changed = JSON.stringify(merged) !== JSON.stringify(sharedTasks);
+    const changed = JSON.stringify(plan.merged) !== JSON.stringify(sharedTasks);
 
-    sharedTasks = merged;
+    sharedTasks = plan.merged;
+    syncedIds = plan.syncedIds;
     await saveTasks(sharedTasks);
+    await saveSyncedIds();
+
     if (changed) notify();
 
     return sharedTasks;
@@ -223,6 +257,16 @@ export const initializeTasks = async (): Promise<Task[]> => {
   if (isInitialized) return sharedTasks;
 
   try {
+    // Read before the first sync, or every existing task looks never-uploaded.
+    try {
+      const storedIds = await AsyncStorage.getItem(SYNCED_IDS_KEY);
+      if (storedIds) syncedIds = new Set<number>(JSON.parse(storedIds));
+    } catch {
+      // A missing or corrupt set is recoverable: the worst case is that one
+      // sync re-uploads tasks the server already has, which is a no-op merge.
+      syncedIds = new Set();
+    }
+
     const storedTasks = await AsyncStorage.getItem(TASKS_STORAGE_KEY);
     if (storedTasks !== null) {
       sharedTasks = JSON.parse(storedTasks);
