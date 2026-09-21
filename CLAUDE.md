@@ -99,7 +99,9 @@ camera telemetry). Crashlytics + Analytics + root error boundary. Firestore
 rules proven by 48 assertions; budget kill switch proven by 4. Daily Firestore
 backups, 7-day retention. **App Check registered on both production apps** —
 Play Integrity and App Attest. Debug token absent from both EAS environments.
-First production Android build and upload keystore exist.
+Production Android build (version code 3) and upload keystore exist.
+**A budget is connected to `softfocus-billing-alerts`** as of 2026-09-21, so
+the kill switch finally has an input.
 
 ### Open, longest lead time first
 1. **Subscription products** in App Store Connect + Play, wired to RevenueCat.
@@ -107,15 +109,19 @@ First production Android build and upload keystore exist.
 2. **Upload the AAB to Play internal testing** → copy the *app signing key*
    SHA-256 from Play Console → add to Firebase → install from the track →
    confirm App Check metrics show **Verified**. Registration alone proves
-   nothing; Play Integrity only attests Play-distributed installs.
-   **Rebuild first** — the 2026-09-19 AAB still declares `RECORD_AUDIO`.
+   nothing; Play Integrity only attests Play-distributed installs, so nothing
+   has verified yet. Use **version code 3** or later — code 2 still declared
+   `RECORD_AUDIO`. Note that Play gates rollout to *any* track, internal
+   included, on the App content declarations, so the forms come first.
 3. **First iOS build** and TestFlight.
 4. **Store listings** — Data safety, App Privacy, content rating (must declare
    user-generated content), screenshots. All four legal URLs are live at
    `https://soft-focus-app.web.app/…`.
-5. **Budget → Pub/Sub wiring.** `budgetKillSwitch` is deployed and correct but
-   has *never been invoked*; `config/budgetState` does not exist. Connect a
-   budget on `soft-focus-app` to the existing `softfocus-billing-alerts` topic.
+5. **Confirm the kill switch has actually fired.** The budget was connected on
+   2026-09-21 but the function had not yet run. Proof is `config/budgetState`
+   existing in Firestore — only the real handler writes it. Also: the £20/month
+   amount suits an app with no users; **raise it before launch** or ordinary
+   use will disable the mentor for everybody.
 6. `config/devAccess.devProEnabled` → **false** on submission day.
 7. **Billing upgrade.** Blaze here is a *free trial expiring 13 December 2026*.
    If it lapses every function stops — mentor, pods, entitlements, the
