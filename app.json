@@ -55,7 +55,14 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-font",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "_comment": "Playback only (one chime, in components/sage/Celebration.tsx). Without these the plugin still adds NSMicrophoneUsageDescription and the dangerous RECORD_AUDIO permission.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/app-check",
       "@react-native-firebase/crashlytics",
