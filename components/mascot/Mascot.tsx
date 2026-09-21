@@ -66,6 +66,19 @@ const STAY: Record<MascotMood, { hold: [number, number]; wander: number }> = {
   rest: { hold: [20000, 34000], wander: 0.08 },
 };
 
+/**
+ * How long the mascot stays exactly where a finger put it.
+ *
+ * Picking it up and putting it down is the most deliberate thing anyone does
+ * with this character, and it used to be the one instruction it ignored: the
+ * drop cut its stint short, it got up, and it walked straight back to whatever
+ * card it fancied. Being moved read as being nudged rather than being placed.
+ *
+ * So a drop now buys twenty seconds of standing still, idling and occasionally
+ * chasing its tail, before the usual roaming resumes.
+ */
+const DROP_DWELL_MS = 20000;
+
 /** The sprite each mood holds while it is settled. */
 const MOOD_CLIP: Record<MascotMood, ClipName> = {
   idle: 'idle',
@@ -732,10 +745,20 @@ export function Mascot() {
     };
 
     /**
-     * Hold a container's mood for a stretch, breaking out early for a tap, for
-     * the container scrolling away, or for another container calling.
+     * Hold a mood for a stretch, breaking out early for a tap, for the
+     * container scrolling away, or for another container calling.
+     *
+     * `perchId` is null when the mascot is not standing on anything — after
+     * being put down by hand, where it holds a spot in screen space rather
+     * than on a card. There is then no container whose disappearance ends the
+     * stint, so `until` is how such a stint knows it has outlived its screen.
      */
-    const settle = async (perchId: string, mood: MascotMood, ms: number) => {
+    const settle = async (
+      perchId: string | null,
+      mood: MascotMood,
+      ms: number,
+      until?: () => boolean,
+    ) => {
       // Not while it is in the air or still getting up: a stint beginning
       // underneath a drag would stamp the mood clip over the carry animation.
       const wear = () => {
@@ -743,7 +766,7 @@ export function Mascot() {
       };
       wear();
       let remaining = ms;
-      while (remaining > 0 && !cancelled && !lost) {
+      while (remaining > 0 && !cancelled && !lost && (!until || until())) {
         if (held.current) {
           await sleep(250);
           continue;
@@ -785,8 +808,9 @@ export function Mascot() {
         // from in here — and why it used to sit on the new screen for a few
         // seconds before noticing it did not belong there.
         if (cancelled || lost) return;
+        if (until && !until()) return;
         if (registry.caller()) return;
-        if (!registry.get(perchId)) return;
+        if (perchId && !registry.get(perchId)) return;
 
         if (spinDue && !held.current && !recovering.current) {
           setClip('spin');
@@ -886,9 +910,49 @@ export function Mascot() {
         park(current, foot);
         await settle(current.id, current.mood, rand(stay.hold[0], stay.hold[1]));
         unpark();
+
+        let justDropped = dropped.current;
         dropped.current = false;
         if (cancelled) return;
         await finishRecovering();
+        if (cancelled) return;
+
+        /*
+          Put down by hand: stand there.
+
+          `settle` returns the moment `dropped` is set, so without this the
+          loop fell straight through to picking a new container and the mascot
+          walked off the instant it had finished getting up. Now it idles in
+          place first, on no container at all — it is standing where the user
+          left it, not on anything, so it is deliberately not parked and does
+          not follow the scroll.
+
+          The loop repeats because a second drag during the dwell should buy
+          another full twenty seconds rather than the remainder of the first.
+        */
+        while (justDropped && !cancelled) {
+          // Nothing can go missing underneath it while it is on no container.
+          lost = false;
+          /*
+            …but the screen can still go. Focus registers no containers at all
+            — it has its own mascot in the room — so the roaming one is meant
+            to step off the moment that tab opens. Standing on nothing, the
+            dwell had no container whose disappearance would tell it that, and
+            it sat over the Pomodoro screen for the full twenty seconds.
+
+            Same test the loop uses for "still the same screen": any container
+            that was here when we landed still being registered. The registry
+            wakes the sleep on every change, so this is noticed at once rather
+            than whenever the current slice happens to end.
+          */
+          await settle(null, 'idle', DROP_DWELL_MS, () =>
+            registry.list().some((p) => known.has(p.id)),
+          );
+          justDropped = dropped.current;
+          dropped.current = false;
+          if (cancelled) return;
+          await finishRecovering();
+        }
         if (cancelled) return;
 
         // Being called means staying put, so skip the stroll and loop straight
