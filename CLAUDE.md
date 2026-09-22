@@ -103,6 +103,9 @@ Production Android build (version code 3) and upload keystore exist.
 **A budget is connected to `softfocus-billing-alerts`** as of 2026-09-21, so
 the kill switch finally has an input.
 
+**`LAUNCH.md` is the ordered runbook** — every remaining step with links, in
+dependency order. The list below is the summary.
+
 ### Open, longest lead time first
 1. **Subscription products** in App Store Connect + Play, wired to RevenueCat.
    Apple reviews these separately and slowly.

@@ -342,6 +342,22 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_xxx
 EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN=
 ```
 
+⚠️ **A local `.env` does not reach an EAS build.** It is gitignored, so the
+builder never receives it, and `EXPO_PUBLIC_*` values are inlined at build
+time from whatever the builder can see. Android version code 3 shipped with
+both RevenueCat keys empty for exactly this reason — `entitlements.ts` logged
+"No RevenueCat key", never configured the SDK, and the paywall rendered
+nothing. For anything you intend to ship:
+
+```bash
+npx eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_IOS_KEY
+npx eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_ANDROID_KEY
+npx eas env:list --environment production   # confirm
+```
+
+The debug token is the opposite case: it must stay **out** of preview and
+production, and `app/appCheck.ts` strips it structurally even if one is set.
+
 `EXPO_PUBLIC_GEMINI_API_KEY` is **gone**. It used to be read by
 `aiMentorService.ts` and shipped inside the bundle, where anyone could extract
 it. If it is still in your `.env` or in EAS secrets, delete it there and
