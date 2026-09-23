@@ -3,6 +3,32 @@
 Do these in order. Each phase depends on the one before it — going out of
 order mostly means rebuilding twice.
 
+## ⚠️ Read this first — Android is three weeks out, iOS is not
+
+Confirmed in Play Console on 2026-09-23. Before production access is granted
+Google requires:
+
+- a published **closed test**
+- **at least 12 testers opted in**, held **continuously for 14 days**
+- then you apply for production access, and they review the application
+
+There is no way to shorten it. Android production is a minimum of three weeks
+from the day the closed test goes live, so **starting that clock is the most
+valuable thing you can do on any given day.**
+
+Recruit **15–20** testers, not 12. The count must hold continuously, and one
+person opting out can break the streak. Point the track at a **Google Group**
+so you can add and remove people without editing the release.
+
+**Apple has no such rule.** TestFlight is immediate and App Review is usually
+a couple of days. So iOS is the real launch, and Android is a follow-on —
+prioritise the iOS build, the App Store Connect subscription and TestFlight
+over anything on the Play store listing.
+
+**Internal testing is available immediately**, before the App content forms
+and before the closed test. That is what unblocks App Check verification
+today, and it accepts the AAB you already have.
+
 Conceptual detail lives in `SETUP.md`. This is the sequence and the links.
 
 **Everything below is console work.** Almost no code.
@@ -113,8 +139,13 @@ The only piece of the security work still unproven: **App Check has never
 verified a single real request.** Play Integrity only attests apps installed
 *from Google Play*, so a sideloaded APK never counts.
 
-Play gates rollout to **every** track, internal included, behind App content.
-So the forms come first.
+**Internal testing does not require the App content forms** — the Play
+dashboard offers it before setup is finished. So this can happen immediately,
+and the AAB you already have is fine for it: you are only proving App Check,
+which does not involve RevenueCat.
+
+The forms *are* required before a **closed** test, which is what starts the
+14-day production clock.
 
 - [ ] **Policy → App content**, complete all sections:
       - Privacy policy `https://soft-focus-app.web.app/privacy.html`
@@ -179,10 +210,10 @@ get past it. The dev-Pro backdoor refuses production builds by design
 - [ ] Submit iOS for review (the subscription is reviewed alongside it)
 - [ ] Submit Android
 
-⚠️ **Check whether Play requires closed testing first.** New *personal*
-developer accounts must run a closed test with **12 testers for 14 continuous
-days** before production access is granted. If that applies, production is two
-weeks out no matter what — start the clock the moment Phase 4 is done.
+⚠️ **Android production needs the closed test finished first** — see the top
+of this file. Submit iOS as soon as it is ready rather than waiting to submit
+both together; there is no reason to hold an approved iOS build for three
+weeks of Android testing.
 
 ---
 
