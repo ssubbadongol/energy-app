@@ -179,8 +179,8 @@ The forms *are* required before a **closed** test, which is what starts the
 
 ## Phase 5 · Listings, and letting reviewers in · 2–3 hours
 
-- [ ] Screenshots for both stores (phone; iPad too unless `supportsTablet` is
-      turned off in `app.json`)
+- [ ] Screenshots for both stores — **phone only**; `supportsTablet` is off,
+      so Apple neither reviews on iPad nor asks for iPad screenshots
 - [ ] Title, short and full descriptions
 - [ ] Apple **App Privacy** questionnaire — the honest answers are in
       `public/privacy.html`, including Gemini free-tier handling

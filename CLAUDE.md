@@ -156,10 +156,10 @@ dependency order. The list below is the summary.
 - **Orphaned files**: `app/(tabs)/LifeTaskModal.tsx` and
   `app/(tabs)/PinnedTaskBanner.tsx`. Nothing imports either; both screens build
   their editors inline. Safe to delete.
-- `supportsTablet: true` means Apple reviews on iPad and wants iPad
-  screenshots. The layouts are phone-shaped. Consider turning it off.
-- `ITSAppUsesNonExemptEncryption` is unset, so App Store Connect asks about
-  export compliance every submission. The app uses only HTTPS.
+- iPad is **off** (`supportsTablet: false`, 2026-09-23). The layouts are
+  phone-shaped, and leaving it on meant Apple reviewing on iPad and demanding
+  iPad screenshots for a UI that was never designed for one. Turning it back
+  on means designing for it, not just flipping the flag.
 
 ### Never verified on a device
 The calendar, the life-task time wheel and sheet, the mascot drop-dwell,
