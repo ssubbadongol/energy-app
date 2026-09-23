@@ -66,7 +66,13 @@
           "recordAudioAndroid": false
         }
       ],
-      "@react-native-firebase/app",
+      [
+        "@react-native-firebase/app",
+        {
+          "_comment": "disableSPM puts $RNFirebaseDisableSPM = true in the Podfile, so Firebase resolves through CocoaPods instead of Swift Package Manager. RNFirebase v26 defaults to SPM, and SPM cannot be combined with the use_frameworks! :linkage => :static that this project needs — every RNFB pod embeds its own copy of firebase-ios-sdk and they collide as duplicate symbols. Fails at pod install with 'SPM + static linkage is not supported'.",
+          "ios": { "disableSPM": true }
+        }
+      ],
       "@react-native-firebase/app-check",
       "@react-native-firebase/crashlytics",
       "@react-native-firebase/analytics",
