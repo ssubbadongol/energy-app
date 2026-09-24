@@ -29,6 +29,26 @@ export interface TimeSpan {
 export const isFixedTime = (span: Pick<TimeSpan, 'startHour' | 'endHour'>): boolean =>
   span.startHour === span.endHour;
 
+/** Mirrors `TimeOfDay` in lifeTaskStorage, which cannot be imported here. */
+export type DaySection = 'morning' | 'midday' | 'evening';
+
+/**
+ * Which part of the day a task belongs to, read from when it starts.
+ *
+ * The time is the truth and the section follows it. The section used to be
+ * picked separately, so a task set to 9 PM could sit under Morning for as
+ * long as nobody remembered to move it — two answers to one question, and the
+ * list showed the wrong one.
+ *
+ * The small hours count as evening: 1 AM is the end of a night, not the start
+ * of a morning, for anyone who is awake to be reminded then.
+ */
+export function sectionForHour(startHour: number): DaySection {
+  if (startHour >= 4 && startHour < 12) return 'morning';
+  if (startHour >= 12 && startHour < 17) return 'midday';
+  return 'evening';
+}
+
 /** `21` → `9 PM`, or `21:00`. */
 export function hourLabel(hour: number, format: ClockFormat = '12h'): string {
   return formatHour(hour, format);

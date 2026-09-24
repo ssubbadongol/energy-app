@@ -20,7 +20,7 @@ import {
   updateLifeTask,
 } from '../lifeTaskStorage';
 import { syncLifeReminders } from '../lifeReminderService';
-import { isFixedTime, spanLabel } from '../lifeSchedule';
+import { isFixedTime, sectionForHour, spanLabel } from '../lifeSchedule';
 import { TimeSpanSheet } from '@/components/sage/TimeSpanSheet';
 import { getUserProfileSync } from '../userProfileStorage';
 import { curve, font, gutter, radius, sage, shadow, text } from '@/theme/sage';
@@ -49,7 +49,18 @@ const EMOJIS = ['💧', '🍽', '🚶', '🏃', '😴', '🚿', '💊', '🌱', 
 */
 const storedLabel = (a: number, b: number) => spanLabel(a, b, '12h');
 
-const EMPTY_DRAFT = { name: '', emoji: '💧', sec: 'morning' as TimeOfDay, start: 9, end: 11, reps: 1 };
+/**
+ * Where a section chip moves the window to. The chips are a shortcut into a
+ * part of the day, not a separate setting — the section is always read back
+ * from the start hour (`sectionForHour`), so a chip that did not move the time
+ * would be a chip that did nothing.
+ */
+const SECTION_START: Record<TimeOfDay, number> = { morning: 8, midday: 12, evening: 19 };
+
+const EMPTY_DRAFT = { name: '', emoji: '💧', start: 9, end: 11, reps: 1 };
+
+/** How far above the editor to stop, so its top edge is not flush with the screen. */
+const EDITOR_SCROLL_MARGIN = 12;
 
 export default function LifeScreen() {
   const celebrate = useCelebrate();
@@ -63,6 +74,10 @@ export default function LifeScreen() {
   // One shared value drives the backdrop's parallax and keeps the mascot on
   // its card, both on the UI thread. See useMascotScroll.
   const { scrollY, onScroll } = useMascotScroll();
+  const scrollRef = useRef<Reanimated.ScrollView>(null);
+  // Where the editor card sits in the scroll content, so tapping a pencil at
+  // the top of a long list can bring it into view.
+  const editorY = useRef(0);
 
   const refresh = useCallback(() => setItems([...getLifeTasks()]), []);
 
@@ -126,7 +141,10 @@ export default function LifeScreen() {
   const editItem = (i: LifeTask) => {
     setEditingId(i.id);
     setWindowTouched(false);
-    setDraft({ name: i.name, emoji: i.emoji, sec: i.timeOfDay, start: i.startHour, end: i.endHour, reps: i.repeats && i.repeats > 1 ? i.repeats : 1 });
+    setDraft({ name: i.name, emoji: i.emoji, start: i.startHour, end: i.endHour, reps: i.repeats && i.repeats > 1 ? i.repeats : 1 });
+    // The editor is below the whole list, so without this the pencil appears
+    // to do nothing until you think to scroll down and look.
+    scrollRef.current?.scrollTo({ y: Math.max(0, editorY.current - EDITOR_SCROLL_MARGIN), animated: true });
   };
   const cancelEdit = () => { setEditingId(null); setWindowTouched(false); setDraft({ ...EMPTY_DRAFT }); };
   const removeItem = async () => {
@@ -142,7 +160,7 @@ export default function LifeScreen() {
       await updateLifeTask(editingId, {
         name: draft.name.trim(),
         emoji: draft.emoji,
-        timeOfDay: draft.sec,
+        timeOfDay: sectionForHour(draft.start),
         // The label is left alone unless the window was actually touched, so a
         // stored "6–12 PM" is not rewritten into an equivalent-but-different
         // string just for opening the editor. The hours always follow the draft,
@@ -161,12 +179,14 @@ export default function LifeScreen() {
         startHour: draft.start,
         endHour: draft.end,
         remind: true,
-        timeOfDay: draft.sec,
+        timeOfDay: sectionForHour(draft.start),
         enabled: true,
         isDefault: false,
         repeats: draft.reps > 1 ? draft.reps : undefined,
       });
-      setDraft({ ...EMPTY_DRAFT, sec: draft.sec });
+      // Keep the time, so adding several things to the same part of the day
+      // does not mean resetting the window each time.
+      setDraft({ ...EMPTY_DRAFT, start: draft.start, end: draft.end });
     }
     refreshAndReschedule();
   };
@@ -190,11 +210,21 @@ export default function LifeScreen() {
   */
   const setStart = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, start: Math.max(0, Math.min(23, v)), end: Math.max(v, d.end) })); };
   const setEnd = (v: number) => { setWindowTouched(true); setDraft((d) => ({ ...d, end: Math.max(0, Math.min(24, v)), start: Math.min(v, d.start) })); };
+  /** Moves the window into a part of the day, keeping its length. */
+  const moveToSection = (sec: TimeOfDay) => {
+    setWindowTouched(true);
+    setDraft((d) => {
+      const start = SECTION_START[sec];
+      return { ...d, start, end: Math.min(24, start + (d.end - d.start)) };
+    });
+  };
+  const draftSection = sectionForHour(draft.start);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <SageBackground scrollY={scrollY} />
       <Reanimated.ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
@@ -241,6 +271,7 @@ export default function LifeScreen() {
             </View>
             </MascotPerch>
 
+            <View onLayout={(e) => { editorY.current = e.nativeEvent.layout.y; }}>
             <MascotPerch
               id="routine-composer"
               mood={composingRoutine ? 'work' : 'idle'}
@@ -263,9 +294,9 @@ export default function LifeScreen() {
 
               <View style={styles.pickerRow}>
                 {SECTIONS.map((s) => {
-                  const on = draft.sec === s.key;
+                  const on = draftSection === s.key;
                   return (
-                    <Pressable key={s.key} onPress={() => setDraft((d) => ({ ...d, sec: s.key }))} style={[styles.pickerBtn, { backgroundColor: on ? sage.fillGreen : sage.fillAlt }]}>
+                    <Pressable key={s.key} onPress={() => moveToSection(s.key)} style={[styles.pickerBtn, { backgroundColor: on ? sage.fillGreen : sage.fillAlt }]}>
                       <Text style={[styles.pickerText, { color: on ? sage.primaryDeep : sage.fgFaint }]}>{s.title.split(' ')[0]}</Text>
                     </Pressable>
                   );
@@ -316,6 +347,7 @@ export default function LifeScreen() {
               )}
             </View>
             </MascotPerch>
+            </View>
 
             <Pressable onPress={() => setSetup(false)} style={styles.primaryBtn}>
               <Text style={text.button}>Save my routine</Text>
@@ -340,7 +372,9 @@ export default function LifeScreen() {
             )}
 
             {SECTIONS.map((s) => {
-              const secItems = items.filter((i) => i.timeOfDay === s.key && i.enabled);
+              // Grouped by the time, not the stored `timeOfDay`, so tasks saved
+              // before the section followed the time land in the right place too.
+              const secItems = items.filter((i) => sectionForHour(i.startHour) === s.key && i.enabled);
               if (secItems.length === 0) return null;
               return (
                 <MascotPerch key={s.key} id={`section-${s.key}`} mood="idle" style={{ marginBottom: 18 }}>

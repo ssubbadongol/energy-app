@@ -18,8 +18,29 @@ import {
   isFixedTime,
   reminderBody,
   reminderTimesFor,
+  sectionForHour,
   spanLabel,
 } from '../app/lifeSchedule';
+
+describe('sections follow the time', () => {
+  test('a 9 PM task is evening, whatever it was filed under', () => {
+    assert.equal(sectionForHour(21), 'evening');
+  });
+
+  test('the boundaries', () => {
+    assert.equal(sectionForHour(4), 'morning');
+    assert.equal(sectionForHour(11), 'morning');
+    assert.equal(sectionForHour(12), 'midday');
+    assert.equal(sectionForHour(16), 'midday');
+    assert.equal(sectionForHour(17), 'evening');
+    assert.equal(sectionForHour(23), 'evening');
+  });
+
+  test('the small hours belong to the night before', () => {
+    assert.equal(sectionForHour(0), 'evening');
+    assert.equal(sectionForHour(3), 'evening');
+  });
+});
 
 /** Minutes past midnight → "HH:MM", so failures are readable. */
 const at = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
