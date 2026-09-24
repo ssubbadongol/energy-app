@@ -29,6 +29,22 @@ over anything on the Play store listing.
 and before the closed test. That is what unblocks App Check verification
 today, and it accepts the AAB you already have.
 
+## Where iOS actually is — 2026-09-24
+
+Ahead of the phases below. Already done:
+
+- Bundle ID registered, App Store Connect record created (Apple ID
+  **6815162003**, `com.tsuyo7.energyapp`)
+- iPad off, export compliance answered (`app.json`)
+- **Build 4 is on TestFlight and installed on a real iPhone**
+- `ascAppId` pinned in `eas.json`, so submissions cannot drift to the wrong
+  app record again
+
+So Phase 3's iOS build and Phase 4's "prove App Check" are effectively done
+for Apple — Phase 4 as written is a Play procedure. What remains for iOS is
+Phase 1 (the subscription), Phase 2 (RevenueCat), the key and a rebuild, then
+Phase 5.
+
 Conceptual detail lives in `SETUP.md`. This is the sequence and the links.
 
 **Everything below is console work.** Almost no code.
@@ -191,15 +207,57 @@ The forms *are* required before a **closed** test, which is what starts the
       - Support `https://soft-focus-app.web.app/support.html`
       - Delete account `https://soft-focus-app.web.app/delete-account.html`
 
+### Apple-specific fields that block submission
+
+Easy to miss because nothing warns you until you try to submit:
+
+- [ ] **App Information → Category** — Productivity as primary. Health &
+      Fitness invites medical scrutiny, and `terms.html` says plainly that
+      Soft Focus is not healthcare.
+- [ ] **App Information → Content Rights** — no third-party content
+- [ ] **Age rating** questionnaire
+- [ ] **App Privacy** questionnaire — answers are in `public/privacy.html`,
+      including the Gemini free-tier disclosure
+- [ ] **Screenshots** — iPhone only now that `supportsTablet` is false
+
 ### Reviewers must be able to reach Pro
 
 They will tap the mentor, hit the paywall, and reject the app if they cannot
-get past it. The dev-Pro backdoor refuses production builds by design
-(`DEV_APP_IDS`), so it will not help them.
+get past it — usually phrased "we were unable to review the features".
 
-- [ ] Create an account in the app
+**Reviewers buy in the sandbox automatically.** Their purchase is free and
+exercises the real StoreKit path, so this works as soon as the products exist
+and are submitted with the build. That is the actual reason Phase 1 blocks
+submission, and it is why a Firebase claim granted by hand does *not* help
+review — reviewers go through the genuine purchase flow, so RevenueCat has to
+work in the submitted binary.
+
+Give them a demo account as well, because Pro needs an account and Apple
+requires credentials whenever anything is behind a sign-in:
+
+- [ ] Create an account in the app with a throwaway email
 - [ ] RevenueCat → that customer → **grant a promotional entitlement** for `pro`
-- [ ] Put the login in **App Review notes** and Play's App access section
+      (better than a raw Firebase claim — visible, revocable, and it survives)
+- [ ] **App Review Information → Sign-In Required** — the credentials
+- [ ] Play → **App access** — the same credentials
+- [ ] Play → **Setup → License testing** — add tester emails so Play purchases
+      are free
+
+### App Review notes
+
+Two things confuse reviewers about this app. Pre-answer both:
+
+> Soft Focus works without an account. An account is only needed for Soft
+> Focus Pro, which unlocks the AI mentor and peer support pods.
+>
+> Demo account: [email] / [password] — already has Pro.
+>
+> Pods are anonymous peer-support rooms. Every message is screened
+> automatically before it appears, members can report and block, and reports
+> are reviewed within 24 hours.
+
+The last paragraph answers Guideline 1.2, which is where an app with anonymous
+mental-health chat usually gets held up.
 
 ---
 
