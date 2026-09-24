@@ -585,6 +585,11 @@ function Composer({ editingId, draft, setDraft, draftEnergy, setDraftEnergy, dra
           is24Hour={false}
           minuteInterval={5}
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          // The spinner takes its text colour from the phone's appearance, not
+          // the app's. With the phone in dark mode it draws white digits on
+          // this light card — the wheel turns and ticks but cannot be seen.
+          themeVariant="light"
+          textColor={sage.fgBody}
           onChange={(event, date) => {
             // Android's dialog closes itself and reports the dismissal; iOS keeps
             // the spinner up until the sheet is dismissed by the Done button.

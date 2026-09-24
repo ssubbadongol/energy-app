@@ -533,6 +533,10 @@ export default function CalendarScreen() {
                   is24Hour={false}
                   minuteInterval={5}
                   display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  // Pinned light for the same reason as the Today editor: in
+                  // dark mode the spinner's digits vanish into the card.
+                  themeVariant="light"
+                  textColor={sage.fgBody}
                   onChange={(event, date) => {
                     // Android's dialog closes itself; iOS keeps the spinner up
                     // until Done.
